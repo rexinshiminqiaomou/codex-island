@@ -238,8 +238,7 @@ fields from the tag and freshly built DMG.
 │   └── Window/
 ├── Resources/              # App-bundled logo PNGs and .icns
 ├── Assets/                 # README logo asset
-├── landing/                # Next.js marketing site
-├── docs/superpowers/specs/ # Design specs for recent UI work
+├── docs/                   # Sparkle runbook, design specs
 ├── Casks/                  # Homebrew Cask template
 ├── scripts/verify.sh       # Native smoke test
 ├── build.sh                # Universal .app build
