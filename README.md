@@ -11,7 +11,8 @@ CodexIsland is a native macOS overlay that turns the MacBook notch into a
 Dynamic-Island-style live activity for Claude Code and Codex usage limits. It
 sits quietly over the notch, peeks on hover with the 5-hour headline, and
 expands on click to show both providers' 5-hour and weekly windows with reset
-timing, chart controls, and a small settings surface.
+timing, chart controls, and a swipeable Cost screen that estimates dollar
+spend and token throughput from your local session logs.
 
 https://github.com/user-attachments/assets/195beeff-0f70-4d6b-8f3d-9f31d9c0b989
 
@@ -25,19 +26,31 @@ providers' own usage endpoints.
 - **Two providers, four windows.** Claude 5h + 7d and Codex 5h + 7d live in
   one panel.
 - **Notch-native overlay.** The compact state is a black pill aligned to the
-  physical notch. On non-notched Macs it falls back to a 200 x 28 menu-bar
-  pill.
+  physical notch, drawn with continuous (squircle) corners that match the
+  hardware. On non-notched Macs it falls back to a 200 x 28 menu-bar pill.
 - **Hover to peek.** The silhouette widens just enough to show each visible
   provider's 5-hour percentage and reset headline.
 - **Click to expand.** Click the island to open the full Usage / Cost panel,
   provider columns, and chart controls.
+- **Swipe between Usage and Cost.** A second screen estimates today and
+  month-to-date dollar spend + token throughput from your local Claude Code
+  and Codex session logs (no extra auth — same files `ccusage` reads). Cycle
+  display modes between USD, VALUE (vs your subscription), TOKENS, and TREND.
+- **Configurable token counting.** The TOKENS hero can sum every token type
+  that crossed the wire (cache included, ccusage parity) or input + output
+  only — the latter matches Anthropic's claude.ai stats panel.
 - **Click-through outside the island.** The window ignores mouse events outside
   the visible silhouette so the menu bar and apps underneath still work.
 - **Five chart styles.** Ring, Bar, Stepped, Numeric, and Sparkline. Pick the
   default in Settings or Cmd-click the expanded panel to cycle.
+- **On-demand refresh.** Click `synced Xs ago` in the panel header to refetch
+  immediately; the next scheduled poll re-arms from there.
+- **Cobalt glow + Low Power Mode.** A soft glow around the island signals an
+  in-flight refresh. Low Power Mode hides the steady-state glow so it only
+  pulses during active work.
 - **Settings without a Dock icon.** A quiet gear in the expanded panel opens a
   custom settings window for launch-at-login, refresh interval, provider
-  visibility, chart style, links, and Quit.
+  visibility, chart style, cost view style, token counting, links, and Quit.
 - **Configurable safe polling.** Choose 5m, 15m, or 30m. The app does not offer
   sub-5-minute polling because Anthropic rate-limits the usage endpoint
   aggressively.
@@ -124,13 +137,19 @@ the first peek. Opening Settings also triggers a fresh fetch.
 
 - Hover the notch to peek at the current 5-hour usage.
 - Click the island to expand the full panel.
+- Swipe horizontally on the panel (or use the indicator dots) to cross between
+  the **Usage** screen and the **Cost** screen.
 - Move away to collapse it.
-- Cmd-click the expanded panel to cycle chart styles.
+- Cmd-click the expanded panel to cycle chart styles on the active screen
+  (Usage cycles Ring/Bar/Stepped/Numeric/Sparkline; Cost cycles
+  USD/VALUE/TOKENS/TREND).
+- Click `synced Xs ago` in the panel header to refetch immediately.
 - Click the gear in the lower-left corner of the expanded panel to open
   Settings.
-- Use Settings to enable Launch at Login, pick a refresh interval, hide/show
-  Claude or Codex, choose the default chart style, open GitHub / License, or
-  quit the app.
+- Use Settings to enable Launch at Login, pick a refresh interval, toggle Low
+  Power Mode, hide/show Claude or Codex, choose the default chart and cost
+  styles, choose between all-tokens and billable-only token counting, open
+  GitHub / License, or quit the app.
 
 Provider visibility is display-only. Hiding a provider removes that provider's
 logo and column from the island, but the app keeps the latest usage values in
@@ -146,11 +165,15 @@ Stored preferences:
 | Setting | Store | UserDefaults key | Values |
 | --- | --- | --- | --- |
 | Chart style | `StylePref` | `MacIsland.chartStyle` | `ring`, `bar`, `stepped`, `numeric`, `spark` |
-| Style hint seen | `StylePref` | `MacIsland.hasCycledStyle` | Boolean |
+| Cost style | `CostStylePref` | `MacIsland.costStyle` | `dollar`, `multi`, `tokens`, `spark` |
+| Token counting | `TokenCountModeStore` | `MacIsland.tokenCountMode` | `all`, `billable` |
 | Refresh interval | `RefreshIntervalStore` | `MacIsland.refreshInterval` | `300`, `900`, `1800` |
+| Low Power Mode | `LowPowerModeStore` | `MacIsland.lowPowerMode` | Boolean, default `false` |
 | Claude visible | `ProviderVisibilityStore` | `MacIsland.claudeVisible` | Boolean, default `true` |
 | Codex visible | `ProviderVisibilityStore` | `MacIsland.codexVisible` | Boolean, default `true` |
 | Launch at login | `LaunchAtLoginStore` | managed by `SMAppService.mainApp` | System login item status |
+| Style hint seen | `StylePref` | `MacIsland.hasCycledStyle` | Boolean |
+| Cost style hint seen | `CostStylePref` | `MacIsland.costStyleCycled` | Boolean |
 
 The refresh interval applies live. `UsageStore` invalidates the current timer
 and re-arms it with the selected cadence.
@@ -206,8 +229,10 @@ fields from the tag and freshly built DMG.
 .
 ├── Sources/
 │   ├── App.swift
+│   ├── Cost/                # Local-log cost + token aggregation
 │   ├── Model/
 │   ├── Theme/
+│   ├── Update/              # Sparkle wrapper
 │   ├── Usage/
 │   ├── Views/
 │   └── Window/
@@ -236,9 +261,15 @@ Native app behavior:
   Anthropic's refresh endpoint.
 - Tokens leave the machine only as `Authorization` headers to `chatgpt.com` and
   `api.anthropic.com`.
+- The Cost screen reads local Claude Code session logs from
+  `~/.claude/projects/**/*.jsonl` (and `~/.config/claude/...`, plus any path
+  in `CLAUDE_CONFIG_DIR`) and Codex session logs from `~/.codex/sessions/`.
+  Aggregation happens entirely on-device — no log content is uploaded or
+  shared anywhere.
 
 The network surface is concentrated in
-[`Sources/Usage/UsageFetcher.swift`](Sources/Usage/UsageFetcher.swift).
+[`Sources/Usage/UsageFetcher.swift`](Sources/Usage/UsageFetcher.swift). The
+local log readers live in [`Sources/Cost/`](Sources/Cost/).
 
 ## Troubleshooting
 
@@ -292,6 +323,10 @@ Settings, and use Settings -> Quit to exit.
   by Sindre Sorhus - reference shape for `SMAppService.mainApp`.
 - [Emil Kowalski](https://animations.dev) - animation timing and interaction
   discipline.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for user-facing changes per release.
 
 ## License
 
