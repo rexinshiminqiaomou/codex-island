@@ -12,6 +12,7 @@ struct SettingsView: View {
     @ObservedObject private var costStylePref = CostStylePref.shared
     @ObservedObject private var visibility = ProviderVisibilityStore.shared
     @ObservedObject private var refreshStore = RefreshIntervalStore.shared
+    @ObservedObject private var tokenMode = TokenCountModeStore.shared
     @ObservedObject private var lowPower = LowPowerModeStore.shared
     @ObservedObject private var usage = UsageStore.shared
     @ObservedObject private var cost = CostStore.shared
@@ -136,6 +137,7 @@ struct SettingsView: View {
     private var providersTab: some View {
         VStack(alignment: .leading, spacing: 0) {
             providersSection
+            tokenCountingSection
             costSection
         }
     }
@@ -267,6 +269,71 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.top, 18)
         .padding(.bottom, 6)
+    }
+
+    /// Lets the user pick which token total drives the TOKENS hero on the
+    /// cost screen. Anthropic's claude.ai stats panel reports input + output
+    /// only; ccusage (and our default) sums every token type that crossed
+    /// the wire — the two diverge by ~10× because cache_read_input_tokens
+    /// dominates Claude Code workflows. Both totals are computed every
+    /// scan, so flipping this is instant — no rescan.
+    private var tokenCountingSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel("Tokens")
+            SettingsRow(
+                title: "Token counting",
+                subtitle: tokenModeSubtitle
+            ) {
+                tokenModeSegmented
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+    }
+
+    private var tokenModeSubtitle: String {
+        switch tokenMode.mode {
+        case .all:
+            return "Counts everything — input, output, and cache. Mirrors ccusage."
+        case .billable:
+            return "Input + output only. Matches Anthropic's claude.ai stats."
+        }
+    }
+
+    private var tokenModeSegmented: some View {
+        HStack(spacing: 0) {
+            ForEach(TokenCountMode.allCases, id: \.self) { mode in
+                let isOn = (mode == tokenMode.mode)
+                Button {
+                    tokenMode.mode = mode
+                } label: {
+                    Text(mode.label)
+                        .font(Typography.bodyNumber)
+                        .foregroundStyle(isOn
+                            ? Color.white.opacity(0.95)
+                            : .white.opacity(0.55))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(isOn ? .white.opacity(0.10) : .clear)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .strokeBorder(.white.opacity(isOn ? 0.08 : 0), lineWidth: 0.5)
+                                }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Token counting, \(mode.label)")
+                .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(2)
+        .background {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(.white.opacity(0.04))
+        }
     }
 
     /// Single-row Cost section. Re-uses the section-label typography on the

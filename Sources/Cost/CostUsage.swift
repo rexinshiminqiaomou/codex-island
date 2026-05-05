@@ -7,7 +7,14 @@ import Foundation
 /// like an achievement rather than a burned-through budget.
 struct CostWindow {
     let dollars: Double
+    /// Sum of every token type that crossed the wire — input + output +
+    /// cache_creation + cache_read. ccusage parity; what the TOKENS hero
+    /// shows when `TokenCountMode.all` is selected.
     let tokens: Int
+    /// Input + output only. Matches Anthropic's claude.ai stats dashboard,
+    /// which excludes cache reads. Surfaced when `TokenCountMode.billable`
+    /// is selected.
+    let billableTokens: Int
     /// Cumulative dollar spend over the period — one point per hour for
     /// today, one per day for the month. Drives the sparkline visualization
     /// in the cost cell. Always monotonically non-decreasing.
@@ -21,7 +28,7 @@ struct CostWindow {
     let unknownModels: [String]
 
     static let unknown = CostWindow(
-        dollars: 0, tokens: 0, series: [], label: "—",
+        dollars: 0, tokens: 0, billableTokens: 0, series: [], label: "—",
         error: "no data", unknownModels: []
     )
 }
@@ -33,11 +40,11 @@ struct ProviderCost {
 
     static let empty = ProviderCost(
         today: CostWindow(
-            dollars: 0, tokens: 0, series: [], label: "Today", error: nil,
-            unknownModels: []
+            dollars: 0, tokens: 0, billableTokens: 0, series: [],
+            label: "Today", error: nil, unknownModels: []
         ),
         month: CostWindow(
-            dollars: 0, tokens: 0, series: [],
+            dollars: 0, tokens: 0, billableTokens: 0, series: [],
             label: CostBucketing.currentMonthLabel(), error: nil,
             unknownModels: []
         )
@@ -48,12 +55,12 @@ struct ProviderCost {
     /// `AppUsage.dummy` pattern used by UsageView).
     static let dummy = ProviderCost(
         today: CostWindow(
-            dollars: 11.25, tokens: 1_240_000,
+            dollars: 11.25, tokens: 1_240_000, billableTokens: 124_000,
             series: [0.5, 1.2, 2.4, 3.6, 5.1, 7.0, 9.2, 11.25],
             label: "Today", error: nil, unknownModels: []
         ),
         month: CostWindow(
-            dollars: 142.0, tokens: 18_500_000,
+            dollars: 142.0, tokens: 18_500_000, billableTokens: 1_850_000,
             series: [3, 8, 15, 22, 31, 40, 52, 65, 78, 90, 105, 120, 135, 142],
             label: CostBucketing.currentMonthLabel(), error: nil,
             unknownModels: []

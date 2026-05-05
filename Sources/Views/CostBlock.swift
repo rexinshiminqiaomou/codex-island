@@ -36,6 +36,7 @@ struct CostTile: View {
 
     @ObservedObject private var stylePref = CostStylePref.shared
     @ObservedObject private var usageStore = UsageStore.shared
+    @ObservedObject private var tokenMode = TokenCountModeStore.shared
 
     /// Locked to match `ChartTile.tileHeight` so swipe transitions don't
     /// reflow the panel.
@@ -273,8 +274,18 @@ struct CostTile: View {
         return String(format: "$%.0f", v)
     }
 
+    /// Honors the user's TokenCountMode setting: `.all` shows wire-level
+    /// throughput (cache included, ccusage parity); `.billable` shows
+    /// input + output only, matching Anthropic's claude.ai stats panel.
+    private var displayedTokens: Int {
+        switch tokenMode.mode {
+        case .all:      return window.tokens
+        case .billable: return window.billableTokens
+        }
+    }
+
     private var tokensValue: String {
-        let n = window.tokens
+        let n = displayedTokens
         let v = Double(n)
         if n < 1_000 { return "\(n)" }
         if n < 10_000 { return String(format: "%.1f", v / 1_000) }
@@ -284,7 +295,7 @@ struct CostTile: View {
     }
 
     private var tokensUnit: String {
-        let n = window.tokens
+        let n = displayedTokens
         if n < 1_000 { return "tok" }
         if n < 1_000_000 { return "k" }
         if n < 1_000_000_000 { return "M" }

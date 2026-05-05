@@ -22,7 +22,7 @@ final class CostStore: ObservableObject {
 
     var loading: Bool { claudeLoading || codexLoading }
 
-    private static let cacheKey = "MacIsland.costCache.v2"
+    private static let cacheKey = "MacIsland.costCache.v3"
     private var pollTimer: Timer?
     private var intervalCancellable: AnyCancellable?
 
@@ -115,14 +115,16 @@ final class CostStore: ObservableObject {
         // Claude: morning-warrior pattern — early start, big morning push,
         // lunch plateau, afternoon resurge, tapering evening. Multi-peak.
         // Monthly is the real April aggregate (already bursty/stepped).
+        // Demo billable tokens are ~10% of total — the typical ratio when
+        // cache reads dominate Claude Code workflows.
         self.claude = ProviderCost(
             today: CostWindow(
-                dollars: 146.61, tokens: 211_240_000,
+                dollars: 146.61, tokens: 211_240_000, billableTokens: 21_124_000,
                 series: [0, 0, 0, 0, 0, 0, 0.8, 4.5, 18.2, 38.7, 58.3, 71.4, 73.8, 76.5, 87.2, 102.8, 117.4, 128.6, 135.2, 140.7, 144.5, 146.0, 146.4, 146.61],
                 label: "Today", error: nil, unknownModels: []
             ),
             month: CostWindow(
-                dollars: 1510.80, tokens: 2_170_970_947,
+                dollars: 1510.80, tokens: 2_170_970_947, billableTokens: 217_097_094,
                 series: [4.32, 11.52, 41.47, 47.80, 67.99, 88.68, 208.14, 249.74, 327.76, 406.09, 438.15, 462.90, 477.83, 576.16, 618.03, 689.91, 710.34, 805.93, 851.29, 866.94, 866.94, 902.46, 951.91, 1010.17, 1073.80, 1128.92, 1182.69, 1219.69, 1366.31, 1510.80],
                 label: "April", error: nil, unknownModels: []
             )
@@ -133,12 +135,12 @@ final class CostStore: ObservableObject {
         // deltas, $12 → $77/day) — visually opposite to Claude's stepped jumps.
         self.codex = ProviderCost(
             today: CostWindow(
-                dollars: 136.50, tokens: 164_120_000,
+                dollars: 136.50, tokens: 164_120_000, billableTokens: 32_824_000,
                 series: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2.4, 6.8, 11.5, 17.2, 22.8, 28.4, 38.5, 51.7, 67.4, 84.6, 102.3, 118.8, 130.4, 136.50],
                 label: "Today", error: nil, unknownModels: []
             ),
             month: CostWindow(
-                dollars: 1342.60, tokens: 1_614_300_000,
+                dollars: 1342.60, tokens: 1_614_300_000, billableTokens: 322_860_000,
                 series: [12.20, 26.70, 43.50, 62.40, 83.70, 107.10, 132.80, 160.70, 190.90, 223.30, 257.90, 294.80, 333.90, 375.30, 418.90, 464.70, 512.80, 563.10, 615.70, 670.50, 727.50, 786.80, 848.30, 912.00, 978.00, 1046.20, 1116.70, 1189.40, 1264.30, 1342.60],
                 label: "April", error: nil, unknownModels: []
             )
@@ -157,8 +159,8 @@ final class CostStore: ObservableObject {
         let currentHour = cal.dateComponents([.hour], from: now).hour ?? 0
         let currentDay = (cal.dateComponents([.day], from: now).day ?? 1) - 1
 
-        var todayDollars = 0.0, todayTokens = 0
-        var monthDollars = 0.0, monthTokens = 0
+        var todayDollars = 0.0, todayTokens = 0, todayBillable = 0
+        var monthDollars = 0.0, monthTokens = 0, monthBillable = 0
         var hourlyBuckets = Array(repeating: 0.0, count: currentHour + 1)
         var dailyBuckets = Array(repeating: 0.0, count: currentDay + 1)
         // Filtered to non-zero token events so handshake/stub rows don't
@@ -170,12 +172,18 @@ final class CostStore: ObservableObject {
         for event in events {
             guard event.timestamp >= monthStart else { continue }
             let cost = Pricing.cost(for: event)
-            let tokens = event.inputTokens + event.outputTokens
-                + event.cacheCreationTokens + event.cacheReadTokens
+            // Two parallel running totals: `tokens` is the wire-level sum
+            // (ccusage parity); `billable` is input + output only, matching
+            // Anthropic's claude.ai stats panel which excludes cache tokens.
+            // Persisting both lets the Settings toggle flip the displayed
+            // figure instantly without re-scanning 30 days of session logs.
+            let billable = event.inputTokens + event.outputTokens
+            let tokens = billable + event.cacheCreationTokens + event.cacheReadTokens
             let isUnpriced = tokens > 0 && !Pricing.isKnown(event.model)
 
             monthDollars += cost
             monthTokens += tokens
+            monthBillable += billable
             let day = (cal.dateComponents([.day], from: event.timestamp).day ?? 1) - 1
             if day < dailyBuckets.count { dailyBuckets[day] += cost }
             if isUnpriced { monthUnknown.insert(event.model) }
@@ -184,6 +192,7 @@ final class CostStore: ObservableObject {
             if event.timestamp >= startOfDay {
                 todayDollars += cost
                 todayTokens += tokens
+                todayBillable += billable
                 let hour = cal.dateComponents([.hour], from: event.timestamp).hour ?? 0
                 if hour < hourlyBuckets.count { hourlyBuckets[hour] += cost }
                 if isUnpriced { todayUnknown.insert(event.model) }
@@ -194,6 +203,7 @@ final class CostStore: ObservableObject {
             today: CostWindow(
                 dollars: todayDollars,
                 tokens: todayTokens,
+                billableTokens: todayBillable,
                 series: runningSum(hourlyBuckets),
                 label: "Today",
                 error: nil,
@@ -202,6 +212,7 @@ final class CostStore: ObservableObject {
             month: CostWindow(
                 dollars: monthDollars,
                 tokens: monthTokens,
+                billableTokens: monthBillable,
                 series: runningSum(dailyBuckets),
                 label: CostBucketing.currentMonthLabel(),
                 error: nil,
@@ -233,6 +244,10 @@ final class CostStore: ObservableObject {
         var claudeMonthTokens: Int
         var codexTodayTokens: Int
         var codexMonthTokens: Int
+        var claudeTodayBillable: Int = 0
+        var claudeMonthBillable: Int = 0
+        var codexTodayBillable: Int = 0
+        var codexMonthBillable: Int = 0
         var claudeTodaySeries: [Double]
         var claudeMonthSeries: [Double]
         var codexTodaySeries: [Double]
@@ -256,6 +271,10 @@ final class CostStore: ObservableObject {
             claudeMonthTokens: claude.month.tokens,
             codexTodayTokens: codex.today.tokens,
             codexMonthTokens: codex.month.tokens,
+            claudeTodayBillable: claude.today.billableTokens,
+            claudeMonthBillable: claude.month.billableTokens,
+            codexTodayBillable: codex.today.billableTokens,
+            codexMonthBillable: codex.month.billableTokens,
             claudeTodaySeries: claude.today.series,
             claudeMonthSeries: claude.month.series,
             codexTodaySeries: codex.today.series,
@@ -278,18 +297,22 @@ final class CostStore: ObservableObject {
 
         self.claude = ProviderCost(
             today: CostWindow(dollars: snap.claudeToday, tokens: snap.claudeTodayTokens,
+                              billableTokens: snap.claudeTodayBillable,
                               series: snap.claudeTodaySeries, label: "Today", error: nil,
                               unknownModels: snap.claudeTodayUnknown),
             month: CostWindow(dollars: snap.claudeMonth, tokens: snap.claudeMonthTokens,
+                              billableTokens: snap.claudeMonthBillable,
                               series: snap.claudeMonthSeries,
                               label: CostBucketing.currentMonthLabel(), error: nil,
                               unknownModels: snap.claudeMonthUnknown)
         )
         self.codex = ProviderCost(
             today: CostWindow(dollars: snap.codexToday, tokens: snap.codexTodayTokens,
+                              billableTokens: snap.codexTodayBillable,
                               series: snap.codexTodaySeries, label: "Today", error: nil,
                               unknownModels: snap.codexTodayUnknown),
             month: CostWindow(dollars: snap.codexMonth, tokens: snap.codexMonthTokens,
+                              billableTokens: snap.codexMonthBillable,
                               series: snap.codexMonthSeries,
                               label: CostBucketing.currentMonthLabel(), error: nil,
                               unknownModels: snap.codexMonthUnknown)
