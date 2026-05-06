@@ -16,6 +16,7 @@ struct NotchPeekPill: View {
     let loading: Bool
     let tint: Color
     let alignment: HorizontalAlignment
+    var severity: AlertEngine.Severity = .none
 
     var body: some View {
         Group {
@@ -27,24 +28,64 @@ struct NotchPeekPill: View {
                     .foregroundStyle(.white.opacity(0.40))
             } else {
                 HStack(spacing: 4) {
-                    Text(percentText)
-                        .font(Typography.bodyNumber)
-                        .foregroundStyle(tint)
-                    Text("·")
-                        .font(Typography.bodyNumber)
-                        .foregroundStyle(.white.opacity(0.40))
-                    // Lower opacity on the fallback differentiates a passive
-                    // "5-hour window" label from an active "5h until reset"
-                    // countdown — same glyph shape, weaker visual presence.
-                    Text(resetText ?? "5h")
-                        .font(Typography.bodyNumber)
-                        .foregroundStyle(.white.opacity(resetText == nil ? 0.45 : 0.70))
+                    if alignment == .leading {
+                        // Left pill: percent on the outside (left), hours
+                        // remaining on the inside (toward the notch).
+                        if severity != .none { warningGlyph }
+                        percentLabel
+                        separator
+                        resetLabel
+                    } else {
+                        // Right pill: mirrored so percent stays on the
+                        // outside (right) and hours remaining stays inside.
+                        resetLabel
+                        separator
+                        percentLabel
+                        if severity != .none { warningGlyph }
+                    }
                 }
             }
         }
         .monospacedDigit()
         .lineLimit(1)
         .fixedSize()
+    }
+
+    private var warningGlyph: some View {
+        Text("⚠")
+            .font(Typography.bodyNumber)
+            .foregroundStyle(effectiveTint)
+    }
+
+    private var percentLabel: some View {
+        Text(percentText)
+            .font(Typography.bodyNumber)
+            .foregroundStyle(effectiveTint)
+    }
+
+    private var separator: some View {
+        Text("·")
+            .font(Typography.bodyNumber)
+            .foregroundStyle(.white.opacity(0.40))
+    }
+
+    /// Lower opacity on the fallback differentiates a passive "5-hour
+    /// window" label from an active "5h until reset" countdown — same
+    /// glyph shape, weaker visual presence.
+    private var resetLabel: some View {
+        Text(resetText ?? "5h")
+            .font(Typography.bodyNumber)
+            .foregroundStyle(.white.opacity(resetText == nil ? 0.45 : 0.70))
+    }
+
+    /// Brand tint by default; alert color when above threshold so the
+    /// percent + warning glyph share a consistent severity color.
+    private var effectiveTint: Color {
+        switch severity {
+        case .none:     return tint
+        case .warning:  return IslandColor.alertAmber
+        case .critical: return IslandColor.alertRed
+        }
     }
 
     private var hasValue: Bool {

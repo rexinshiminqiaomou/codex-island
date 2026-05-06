@@ -7,9 +7,11 @@ struct IslandRootView: View {
     @ObservedObject private var usageStore = UsageStore.shared
     @ObservedObject private var costStore = CostStore.shared
     @ObservedObject private var lowPower = LowPowerModeStore.shared
+    @ObservedObject private var alerts = AlertEngine.shared
     @State private var hovering = false
     @State private var contentVisible = false
     @State private var pillsVisible = false
+    @State private var pulseToken: UUID?
 
     /// PNG-from-disk decode is ~150µs per call. Computed properties
     /// re-decoded both logos every render — inside a 120Hz TimelineView
@@ -31,10 +33,15 @@ struct IslandRootView: View {
             ZStack {
                 // Default: ambient orbit runs continuously. Low-power mode
                 // restricts it to active fetches only — same behavior as
-                // before this preference existed.
-                LoadingSweep(active: lowPower.enabled
-                    ? (usageStore.loading || costStore.loading)
-                    : true)
+                // before this preference existed. The orbit color follows
+                // the alert severity so the entire glow (halo + sweep)
+                // reads as one consistent color when above threshold.
+                LoadingSweep(
+                    active: lowPower.enabled
+                        ? (usageStore.loading || costStore.loading)
+                        : true,
+                    tint: glowColor
+                )
 
                 IslandShape()
                     .fill(.black)
@@ -45,7 +52,13 @@ struct IslandRootView: View {
                                 lineWidth: 0.5
                             )
                     }
-                    .shadow(color: IslandColor.cobalt.opacity(0.35), radius: 14, y: 0)
+                    .shadow(color: glowColor.opacity(0.35), radius: 14, y: 0)
+                    // Cross-fade the glow hue when severity steps cobalt →
+                    // amber → red. Without this, a 79% → 80% refresh tick
+                    // visibly snaps; with it, the boundary feels like a
+                    // gradient. easeInOut so the transition has no harsh
+                    // start or end — the color is "just there now."
+                    .animation(.easeInOut(duration: 0.45), value: alerts.severity)
                     .shadow(
                         color: model.state == .expanded ? .black.opacity(0.5) : .clear,
                         radius: 20, y: 10
@@ -112,7 +125,8 @@ struct IslandRootView: View {
                             usage: usageStore.claude.fiveHour,
                             loading: usageStore.loading,
                             tint: IslandColor.claude,
-                            alignment: .leading
+                            alignment: .leading,
+                            severity: alerts.claudeSeverity
                         )
                         .padding(.leading, 14)
                         .padding(.top, max(0, (model.notch.height - 14) / 2))
@@ -128,7 +142,8 @@ struct IslandRootView: View {
                             usage: usageStore.codex.fiveHour,
                             loading: usageStore.loading,
                             tint: IslandColor.codex,
-                            alignment: .trailing
+                            alignment: .trailing,
+                            severity: alerts.codexSeverity
                         )
                         .padding(.trailing, 14)
                         .padding(.top, max(0, (model.notch.height - 14) / 2))
@@ -238,6 +253,65 @@ struct IslandRootView: View {
                     .flatMap { NSImage(contentsOf: $0) }
             }
         }
+        .onReceive(alerts.$pulseEvent) { event in
+            guard let event, event.id != pulseToken else { return }
+            pulseToken = event.id
+            handlePulse(event)
+            // Consume the event so a re-emission with the same id doesn't
+            // re-trigger; the engine writes a fresh PulseEvent for each new
+            // crossing tick.
+            alerts.pulseEvent = nil
+        }
+    }
+
+    /// Force-extends the island into peek state for ~4s when the alert
+    /// engine signals a fresh threshold crossing. Suppressed when the panel
+    /// is already expanded — the user is already looking at the data.
+    private func handlePulse(_ event: AlertEngine.PulseEvent) {
+        guard model.state != .expanded else { return }
+
+        if model.state == .compact {
+            withAnimation(.openMorph) {
+                model.setState(.peek)
+            }
+            // Match the hover-in cadence so the pulse looks identical to a
+            // user-initiated peek: shape commits first, content follows.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                guard model.state == .peek else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    pillsVisible = true
+                }
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            // If the user is hovering or has expanded the panel meanwhile,
+            // don't fight their state — let their interaction own the peek
+            // lifecycle from here.
+            guard !hovering, model.state == .peek else { return }
+            withAnimation(.easeOut(duration: 0.08)) {
+                pillsVisible = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                guard !hovering, model.state == .peek else { return }
+                withAnimation(.closeMorph) {
+                    model.setState(.compact)
+                }
+            }
+        }
+    }
+
+    /// Silhouette glow color. Cobalt is the ambient default; alert
+    /// thresholds replace it with amber/red so the user gets the signal
+    /// passively, even before hovering. All three share the same opacity
+    /// so the glow's visual weight is constant — only the hue signals
+    /// severity.
+    private var glowColor: Color {
+        switch alerts.severity {
+        case .none:     return IslandColor.cobalt
+        case .warning:  return IslandColor.alertAmber
+        case .critical: return IslandColor.alertRed
+        }
     }
 
     private var accessibilityHintForState: String {
@@ -299,6 +373,10 @@ struct IslandRootView: View {
 /// without it the sweep settles to ~60Hz.
 private struct LoadingSweep: View {
     let active: Bool
+    /// Color of the orbiting trail. Cobalt by default; switches to amber
+    /// or red while the alert engine reports a tracked window above its
+    /// warning/critical threshold so the entire glow shares one hue.
+    let tint: Color
 
     var body: some View {
         if active {
@@ -310,10 +388,10 @@ private struct LoadingSweep: View {
                         AngularGradient(
                             gradient: Gradient(stops: [
                                 .init(color: .clear, location: 0.00),
-                                .init(color: IslandColor.cobalt.opacity(0.0), location: 0.55),
-                                .init(color: IslandColor.cobalt, location: 0.78),
+                                .init(color: tint.opacity(0.0), location: 0.55),
+                                .init(color: tint, location: 0.78),
                                 .init(color: .white.opacity(0.95), location: 0.92),
-                                .init(color: IslandColor.cobalt.opacity(0.0), location: 1.00),
+                                .init(color: tint.opacity(0.0), location: 1.00),
                             ]),
                             center: .center,
                             angle: .degrees(rotation)
