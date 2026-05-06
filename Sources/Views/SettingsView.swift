@@ -14,6 +14,7 @@ struct SettingsView: View {
     @ObservedObject private var refreshStore = RefreshIntervalStore.shared
     @ObservedObject private var tokenMode = TokenCountModeStore.shared
     @ObservedObject private var lowPower = LowPowerModeStore.shared
+    @ObservedObject private var alertPrefs = AlertThresholdStore.shared
     @ObservedObject private var usage = UsageStore.shared
     @ObservedObject private var cost = CostStore.shared
     @ObservedObject private var updater = UpdaterController.shared
@@ -123,6 +124,7 @@ struct SettingsView: View {
     private var generalTab: some View {
         VStack(alignment: .leading, spacing: 0) {
             generalSection
+            alertsSection
             updatesSection
         }
     }
@@ -200,6 +202,193 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.top, 18)
         .padding(.bottom, 6)
+    }
+
+    /// Approaching-limit alerts. Default off — opt-in via the toggle.
+    /// When on, the silhouette glow tints amber/red while a tracked 5h
+    /// window is at or above the configured percentages, and the peek
+    /// pill auto-extends once when a window first crosses each threshold.
+    private var alertsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel("Alerts")
+            SettingsRow(
+                title: "Approaching-limit alerts",
+                subtitle: "Tint the island and pulse the peek pill when 5-hour usage nears your limit."
+            ) {
+                SettingsToggle(isOn: alertPrefs.enabled) {
+                    // withAnimation here so the threshold rows + Preview row
+                    // crossfade their disabled/enabled state instead of
+                    // snapping. The dim/undim is the user's signal that the
+                    // controls became interactive.
+                    withAnimation(.strongEaseOut) {
+                        alertPrefs.enabled.toggle()
+                    }
+                }
+            }
+            SettingsRow(
+                title: "Warning at",
+                subtitle: "Glow turns amber when 5-hour usage crosses this percent."
+            ) {
+                thresholdStepper(
+                    value: Binding(
+                        get: { alertPrefs.warningPercent },
+                        set: { alertPrefs.warningPercent = $0 }
+                    ),
+                    range: warningStepperRange
+                )
+            }
+            .disabled(!alertPrefs.enabled)
+            .opacity(alertPrefs.enabled ? 1.0 : 0.45)
+            SettingsRow(
+                title: "Critical at",
+                subtitle: "Glow turns red when 5-hour usage crosses this percent."
+            ) {
+                thresholdStepper(
+                    value: Binding(
+                        get: { alertPrefs.criticalPercent },
+                        set: { alertPrefs.criticalPercent = $0 }
+                    ),
+                    range: criticalStepperRange
+                )
+            }
+            .disabled(!alertPrefs.enabled)
+            .opacity(alertPrefs.enabled ? 1.0 : 0.45)
+            if alertPrefs.enabled && isDevMode {
+                SettingsRow(
+                    title: "Preview",
+                    subtitle: "Inject test percentages. Visible only when launched with CODEXISLAND_DEBUG=1."
+                ) {
+                    previewButtons
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    private var previewButtons: some View {
+        HStack(spacing: 4) {
+            previewButton("Live") { usage.refresh() }
+                .keyboardShortcut("1", modifiers: .command)
+                .help("⌘1 — pull real provider data")
+            previewButton("Warn") { runPreview(claude: 0.85, codex: 0.55) }
+                .keyboardShortcut("2", modifiers: .command)
+                .help("⌘2 — Claude 85%, Codex 55%")
+            previewButton("Crit") { runPreview(claude: 0.96, codex: 0.55) }
+                .keyboardShortcut("3", modifiers: .command)
+                .help("⌘3 — Claude 96%, Codex 55%")
+            previewButton("Both") { runPreview(claude: 0.86, codex: 0.97) }
+                .keyboardShortcut("4", modifiers: .command)
+                .help("⌘4 — Claude 86%, Codex 97%")
+        }
+    }
+
+    @ViewBuilder
+    private func previewButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(Typography.bodyNumber)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(.white.opacity(0.06))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                        }
+                }
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+
+    private var isDevMode: Bool {
+        ProcessInfo.processInfo.environment["CODEXISLAND_DEBUG"] == "1"
+    }
+
+    /// Resets the engine's crossing memory before injecting so each click
+    /// fires a fresh pulse — otherwise the second "Warn" click would be a
+    /// no-op (key already in memory from the first click).
+    private func runPreview(claude: Double, codex: Double) {
+        AlertEngine.shared.prepareForPreview()
+        usage.injectPreviewUsage(claudeFiveHour: claude, codexFiveHour: codex)
+    }
+
+    /// Warning's upper bound is `critical - 1` so the steppers can't drift
+    /// the pair into an invalid state. Same idea in reverse for critical.
+    private var warningStepperRange: ClosedRange<Int> {
+        let lo = AlertThresholdStore.warningRange.lowerBound
+        let hi = min(AlertThresholdStore.warningRange.upperBound, alertPrefs.criticalPercent - 1)
+        return lo...max(lo, hi)
+    }
+
+    private var criticalStepperRange: ClosedRange<Int> {
+        let lo = max(AlertThresholdStore.criticalRange.lowerBound, alertPrefs.warningPercent + 1)
+        let hi = AlertThresholdStore.criticalRange.upperBound
+        return min(lo, hi)...hi
+    }
+
+    @ViewBuilder
+    private func thresholdStepper(
+        value: Binding<Int>,
+        range: ClosedRange<Int>
+    ) -> some View {
+        // Wrapped binding clamps anything the user types so out-of-range
+        // direct entry (e.g. "999") snaps to the dynamic range on commit.
+        // The dynamic range already enforces `warning < critical`, so this
+        // also covers the cross-field constraint without a separate check.
+        let clamped = Binding<Int>(
+            get: { value.wrappedValue },
+            set: { newValue in
+                value.wrappedValue = max(range.lowerBound, min(range.upperBound, newValue))
+            }
+        )
+        HStack(spacing: 4) {
+            // Fixed-frame container around the TextField so the focus
+            // indicator's internal padding doesn't propagate into the
+            // surrounding HStack and shift the % glyph + chevrons. The
+            // TextField fills this frame and has its own intrinsic size
+            // calculation suppressed via .frame's `maxWidth`/`maxHeight`.
+            TextField("", value: clamped, format: .number)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .font(Typography.bodyNumber)
+                .foregroundStyle(.white.opacity(0.92))
+                .monospacedDigit()
+                .frame(width: 24, height: 16)
+                .clipped()
+            Text("%")
+                .font(Typography.bodyNumber)
+                .foregroundStyle(.white.opacity(0.55))
+            VStack(spacing: 1) {
+                RepeatingChevronButton(systemName: "chevron.up") {
+                    if value.wrappedValue < range.upperBound {
+                        value.wrappedValue += 1
+                    }
+                }
+                RepeatingChevronButton(systemName: "chevron.down") {
+                    if value.wrappedValue > range.lowerBound {
+                        value.wrappedValue -= 1
+                    }
+                }
+            }
+            .padding(.leading, 2)
+        }
+        .fixedSize()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.white.opacity(0.06))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                }
+        }
     }
 
     private var updatesSection: some View {

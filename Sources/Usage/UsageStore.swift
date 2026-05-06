@@ -85,6 +85,45 @@ final class UsageStore: ObservableObject {
             && u.fiveHour.usedPercent == 0 && u.weekly.usedPercent == 0
     }
 
+    /// Replace current usage values with hand-tuned percentages so the
+    /// alert engine's pulse + tint behavior can be exercised without
+    /// waiting for a real provider crossing. Auto-refresh continues — the
+    /// next scheduled poll will overwrite these values with real data.
+    /// Each call uses fresh `resetAt` timestamps so the alert engine
+    /// treats it as a new reset window and re-evaluates crossings.
+    func injectPreviewUsage(claudeFiveHour: Double, codexFiveHour: Double) {
+        let now = Date()
+        let fiveHourReset = now.addingTimeInterval(2 * 3600 + 14 * 60)
+        let weeklyReset = now.addingTimeInterval(4 * 86400 + 6 * 3600)
+        self.claude = AppUsage(
+            fiveHour: WindowUsage(
+                usedPercent: claudeFiveHour,
+                resetAt: fiveHourReset,
+                error: nil
+            ),
+            weekly: WindowUsage(
+                usedPercent: 0.45,
+                resetAt: weeklyReset,
+                error: nil
+            ),
+            plan: claude.plan ?? "max"
+        )
+        self.codex = AppUsage(
+            fiveHour: WindowUsage(
+                usedPercent: codexFiveHour,
+                resetAt: fiveHourReset,
+                error: nil
+            ),
+            weekly: WindowUsage(
+                usedPercent: 0.30,
+                resetAt: weeklyReset,
+                error: nil
+            ),
+            plan: codex.plan ?? "pro"
+        )
+        self.lastUpdated = now
+    }
+
     func startAutoRefresh() {
         stopAutoRefresh()
         refresh()

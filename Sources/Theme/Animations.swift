@@ -24,6 +24,22 @@ private struct BlurTransitionModifier: ViewModifier {
     }
 }
 
+/// Subtle scale-down on press so any pressable surface gives instant
+/// feedback. Per Emil's rule: "buttons must feel responsive to press."
+/// Scale stays in the 0.92–0.97 range; below that the press feels
+/// rubbery, above it reads as no feedback at all. Animation is short
+/// (110ms) so it tracks the user's finger.
+struct PressableButtonStyle: ButtonStyle {
+    let scale: CGFloat
+    init(scale: CGFloat = 0.94) { self.scale = scale }
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .animation(.easeOut(duration: 0.11), value: configuration.isPressed)
+    }
+}
+
 extension AnyTransition {
     /// Blur + scale + opacity. Two crossfading shapes (Ring → Bar) read as
     /// one continuous transformation rather than two distinct objects
