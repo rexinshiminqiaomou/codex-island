@@ -100,7 +100,12 @@ struct NotchPeekPill: View {
     }
 
     private var showDash: Bool {
-        usage.error != nil && usage.usedPercent == 0
+        // "no data" is our sentinel for "API returned null for this window"
+        // (typically a fresh 5h period before the first OAuth call lands).
+        // Treat it as a passive non-error so the pill still renders with
+        // the 5h window-length fallback instead of collapsing to "—%".
+        guard let err = usage.error, err != "no data" else { return false }
+        return usage.usedPercent == 0
     }
 
     private var percentText: String {

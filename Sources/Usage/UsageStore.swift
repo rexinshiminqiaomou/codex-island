@@ -70,9 +70,17 @@ final class UsageStore: ObservableObject {
 
             // Don't clobber existing good values when a fetch returns an
             // all-error result. A transient 429 shouldn't blank the panel
-            // back to "0%" — that's worse than slightly stale data.
-            if !UsageStore.isErrorOnly(c) { self.codex = c }
-            if !UsageStore.isErrorOnly(cl) { self.claude = cl }
+            // back to "0%" — that's worse than slightly stale data. But if
+            // the existing value is itself error-only (cold start sitting
+            // on `.empty`, or a series of failures), let the new error
+            // through — otherwise a single bad first fetch sticks "no data"
+            // permanently even after the network recovers.
+            if !UsageStore.isErrorOnly(c) || UsageStore.isErrorOnly(self.codex) {
+                self.codex = c
+            }
+            if !UsageStore.isErrorOnly(cl) || UsageStore.isErrorOnly(self.claude) {
+                self.claude = cl
+            }
             self.lastUpdated = Date()
             self.loading = false
         }

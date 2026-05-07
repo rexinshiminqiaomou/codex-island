@@ -96,10 +96,17 @@ struct ChartTile: View {
     }
 
     private func subCaption() -> String {
-        if let err = window.error { return err }
-        guard let r = window.resetAt else { return "" }
-        let delta = max(0, r.timeIntervalSinceNow)
-        return "resets in \(formatDelta(delta))"
+        if let r = window.resetAt {
+            let delta = max(0, r.timeIntervalSinceNow)
+            return "resets in \(formatDelta(delta))"
+        }
+        // "no data" is our internal sentinel for "API returned null for this
+        // window" — most commonly a brand-new 5h period before the first
+        // OAuth call lands. Hide it so the tile reads as a passive
+        // window-context cue (the "5h"/"week" header label communicates the
+        // window type) instead of looking broken. Real errors still surface.
+        if let err = window.error, err != "no data" { return err }
+        return ""
     }
 
     private func formatDelta(_ s: TimeInterval) -> String {
