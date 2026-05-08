@@ -8,23 +8,29 @@ enum UsageFetcher {
     /// and rarely rate-limited, so this is the easy half of the integration.
     static func fetchCodex() async -> AppUsage {
         guard let token = readCodexAccessToken() else {
-            return AppUsage(
-                fiveHour: WindowUsage(usedPercent: 0, resetAt: nil, error: "no codex auth"),
-                weekly: WindowUsage(usedPercent: 0, resetAt: nil, error: "no codex auth")
-            )
+            return codexErrorPair("no codex auth")
         }
 
         var req = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            // 401 means the access_token in ~/.codex/auth.json has expired.
+            // The Codex CLI rotates this token on its own — there's nothing
+            // we can do from here, so surface the exact remediation step.
+            if status == 401 {
+                return codexErrorPair("auth expired — codex login")
+            }
+            if status != 200 {
+                return codexErrorPair("http \(status)")
+            }
+
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let rl = obj["rate_limit"] as? [String: Any] else {
-                return AppUsage(
-                    fiveHour: WindowUsage(usedPercent: 0, resetAt: nil, error: "parse error"),
-                    weekly: WindowUsage(usedPercent: 0, resetAt: nil, error: "parse error")
-                )
+                return codexErrorPair("parse error")
             }
             return AppUsage(
                 fiveHour: parseCodexWindow(rl["primary_window"]),
@@ -32,11 +38,15 @@ enum UsageFetcher {
                 plan: obj["plan_type"] as? String
             )
         } catch {
-            return AppUsage(
-                fiveHour: WindowUsage(usedPercent: 0, resetAt: nil, error: error.localizedDescription),
-                weekly: WindowUsage(usedPercent: 0, resetAt: nil, error: error.localizedDescription)
-            )
+            return codexErrorPair(error.localizedDescription)
         }
+    }
+
+    private static func codexErrorPair(_ message: String) -> AppUsage {
+        AppUsage(
+            fiveHour: WindowUsage(usedPercent: 0, resetAt: nil, error: message),
+            weekly: WindowUsage(usedPercent: 0, resetAt: nil, error: message)
+        )
     }
 
     private static func readCodexAccessToken() -> String? {
