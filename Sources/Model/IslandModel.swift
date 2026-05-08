@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 @MainActor
 final class IslandModel: ObservableObject {
@@ -12,28 +13,24 @@ final class IslandModel: ObservableObject {
     @Published var size: CGSize = .zero
     @Published var notch: NotchInfo
 
-    /// Side extension that houses each brand logo in compact state.
     let tabWidth: CGFloat = 38
-
-    /// Per-side outboard slot that houses the peek-state percentage pill.
-    /// Sized for "100% · Nh" worst case at the chosen pill typography.
-    /// Fixed (not text-measured) so percentage updates don't jitter the
-    /// silhouette width during refresh. Grown symmetrically on both sides
-    /// regardless of which provider is visible — keeps the silhouette
-    /// balanced over the physical notch.
     let pillSlotWidth: CGFloat = 78
-
-    /// Visible expanded panel width.
     private let expandedWidth: CGFloat = 720
-
-    /// Visible expanded panel content height. The shape sits flush with the
-    /// top of the screen, so we add notch.height of "filler" so visible
-    /// content sits BELOW the notch line.
     private let expandedContentHeight: CGFloat = 172
 
+    /// Detection-pure notch from `NotchInfo.detect`. Kept separate from
+    /// `notch` (which has the user's spacing override applied) so
+    /// `updateNotch`'s diff guard isn't confused by override-induced
+    /// width changes that originate from the store, not the screen.
+    private var rawNotch: NotchInfo
+
+    private var subs: Set<AnyCancellable> = []
+
     init(notch: NotchInfo) {
-        self.notch = notch
+        self.rawNotch = notch
+        self.notch = Self.applyOverride(to: notch)
         recomputeSize()
+        subscribeToSpacingStore()
     }
 
     func setState(_ new: State) {
@@ -42,10 +39,45 @@ final class IslandModel: ObservableObject {
         recomputeSize()
     }
 
-    func updateNotch(_ new: NotchInfo) {
-        guard new.width != notch.width || new.height != notch.height || new.hasNotch != notch.hasNotch else { return }
-        notch = new
+    func updateNotch(_ raw: NotchInfo) {
+        guard raw.width != rawNotch.width
+            || raw.height != rawNotch.height
+            || raw.hasNotch != rawNotch.hasNotch else { return }
+        rawNotch = raw
+        notch = Self.applyOverride(to: raw)
         recomputeSize()
+    }
+
+    /// Substitutes the user's chosen non-notch width for the detected
+    /// fallback. On notched screens the raw notch is returned untouched —
+    /// the override is meaningless there (you can't shrink a physical
+    /// notch).
+    private static func applyOverride(to raw: NotchInfo) -> NotchInfo {
+        if raw.hasNotch { return raw }
+        return NotchInfo(
+            width: IslandSpacingStore.shared.width,
+            height: raw.height,
+            hasNotch: false
+        )
+    }
+
+    /// Re-applies the override and re-computes size whenever the user
+    /// changes spacing mode. Wrapped in `withAnimation(.openMorph)` so
+    /// the silhouette springs to its new width with the same feel as a
+    /// state morph (compact ↔ peek ↔ expanded).
+    private func subscribeToSpacingStore() {
+        IslandSpacingStore.shared.$mode
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let new = Self.applyOverride(to: self.rawNotch)
+                guard new.width != self.notch.width else { return }
+                withAnimation(.openMorph) {
+                    self.notch = new
+                    self.recomputeSize()
+                }
+            }
+            .store(in: &subs)
     }
 
     private func recomputeSize() {

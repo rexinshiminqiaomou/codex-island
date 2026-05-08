@@ -22,7 +22,7 @@ struct NotchInfo {
     /// (screen width - left - right).
     static func detect(from screen: NSScreen?) -> NotchInfo {
         guard let screen else {
-            return NotchInfo(width: 200, height: menuBarFallback(), hasNotch: false)
+            return NotchInfo(width: IslandSpacingStore.compactWidth, height: menuBarFallback(), hasNotch: false)
         }
         let safeTop = screen.safeAreaInsets.top
         let visualHeight = visibleMenuBarHeight(of: screen)
@@ -35,7 +35,7 @@ struct NotchInfo {
                 : 200
             return NotchInfo(width: width, height: visualHeight, hasNotch: true)
         }
-        return NotchInfo(width: 200, height: visualHeight, hasNotch: false)
+        return NotchInfo(width: IslandSpacingStore.compactWidth, height: visualHeight, hasNotch: false)
     }
 
     private static func visibleMenuBarHeight(of screen: NSScreen) -> CGFloat {
