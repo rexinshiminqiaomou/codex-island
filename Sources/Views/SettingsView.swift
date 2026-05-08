@@ -15,6 +15,8 @@ struct SettingsView: View {
     @ObservedObject private var tokenMode = TokenCountModeStore.shared
     @ObservedObject private var lowPower = LowPowerModeStore.shared
     @ObservedObject private var alertPrefs = AlertThresholdStore.shared
+    @ObservedObject private var spacing = IslandSpacingStore.shared
+    @ObservedObject private var targetDisplay = IslandTargetDisplayStore.shared
     @ObservedObject private var usage = UsageStore.shared
     @ObservedObject private var cost = CostStore.shared
     @ObservedObject private var updater = UpdaterController.shared
@@ -133,7 +135,19 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             chartSection
             costStyleSection
+            targetDisplaySection
+            if spacingSectionVisible {
+                spacingSection
+            }
         }
+    }
+
+    /// Shown when the island is currently rendered on a non-notched
+    /// display (whether by Auto or by an explicit user pick of an
+    /// external). Reads the same resolver the window controller uses, so
+    /// the gate stays in sync with where the island actually is.
+    private var spacingSectionVisible: Bool {
+        DisplayInfo.currentTarget()?.notch.hasNotch == false
     }
 
     private var providersTab: some View {
@@ -624,6 +638,126 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .padding(.bottom, 14)
+    }
+
+    private var spacingSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel("Spacing")
+            SettingsRow(
+                title: "Island width",
+                subtitle: "Tightens the gap between logos when the island is on a screen without a hardware notch."
+            ) {
+                spacingSegmented
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+    }
+
+    private var spacingSegmented: some View {
+        // Default-on-the-left: Compact is the new default, so it sits
+        // left of Notch-style.
+        HStack(spacing: 0) {
+            spacingSegment(.compact, label: "Compact")
+            spacingSegment(.notchStyle, label: "Notch-style")
+        }
+        .padding(2)
+        .background {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(.white.opacity(0.04))
+        }
+    }
+
+    @ViewBuilder
+    private func spacingSegment(_ mode: IslandSpacingStore.Mode, label: String) -> some View {
+        let isOn = (mode == spacing.mode)
+        Button {
+            spacing.mode = mode
+        } label: {
+            Text(label)
+                .font(Typography.bodyNumber)
+                .foregroundStyle(isOn
+                    ? Color.white.opacity(0.95)
+                    : .white.opacity(0.55))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(isOn ? .white.opacity(0.10) : .clear)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(.white.opacity(isOn ? 0.08 : 0), lineWidth: 0.5)
+                        }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Island width, \(label)")
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var targetDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionLabel("Target Display")
+            SettingsRow(
+                title: "Show on",
+                subtitle: targetDisplaySubtitle
+            ) {
+                targetDisplayPicker
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
+    }
+
+    /// Subtitle shows the resolved current display when the user is on
+    /// `.auto` — answers "where is the island actually?" without making
+    /// the user open another setting.
+    private var targetDisplaySubtitle: String {
+        switch targetDisplay.choice {
+        case .auto:
+            if let resolved = DisplayInfo.currentTarget() {
+                return "Auto — currently on \(resolved.name)."
+            }
+            return "Auto — picks a notched display when available."
+        case .stable:
+            return "Pinned to a specific display. Falls back to Auto if unplugged."
+        }
+    }
+
+    private var targetDisplayPicker: some View {
+        let displays = DisplayInfo.all()
+        return Picker("", selection: pickerSelection) {
+            Text("Auto").tag("auto")
+            ForEach(displays, id: \.stableID) { d in
+                Text(d.isBuiltin ? "\(d.name) (built-in)" : d.name)
+                    .tag(d.stableID)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(maxWidth: 220)
+        .accessibilityLabel("Target display")
+    }
+
+    /// Bridges the enum `Choice` to a `String` selection that SwiftUI's
+    /// `Picker` can use as tags. "auto" is the sentinel for `.auto`; any
+    /// other value is a stableID of a connected display.
+    private var pickerSelection: Binding<String> {
+        Binding(
+            get: {
+                switch targetDisplay.choice {
+                case .auto:           return "auto"
+                case .stable(let id): return id
+                }
+            },
+            set: { newValue in
+                targetDisplay.choice = newValue == "auto"
+                    ? .auto
+                    : .stable(id: newValue)
+            }
+        )
     }
 
     // MARK: - Refresh segmented

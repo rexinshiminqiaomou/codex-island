@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,7 @@ final class IslandWindowController {
     private var mouseMonitor: Any?
     private var trackingTimer: Timer?
     private var screenChangeObserver: NSObjectProtocol?
+    private var subs: Set<AnyCancellable> = []
 
     static let windowSize = CGSize(width: 900, height: 280)
 
@@ -43,6 +45,7 @@ final class IslandWindowController {
         NSApp.activate(ignoringOtherApps: true)
         installMouseTracking()
         observeScreenChanges()
+        observeTargetChoice()
     }
 
     deinit {
@@ -95,11 +98,9 @@ final class IslandWindowController {
         }
     }
 
-    /// Anchor to the notched display so the island always sits over the
-    /// physical notch — even when an external monitor is the active screen.
-    /// Falls back to `NSScreen.main` on Macs without a notch.
+    @MainActor
     private static func targetScreen() -> NSScreen? {
-        NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
+        DisplayInfo.currentTarget()?.screen
     }
 
     private func observeScreenChanges() {
@@ -110,6 +111,15 @@ final class IslandWindowController {
         ) { [weak self] _ in
             Task { @MainActor in self?.repositionForCurrentScreen() }
         }
+    }
+
+    private func observeTargetChoice() {
+        IslandTargetDisplayStore.shared.$choice
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.repositionForCurrentScreen() }
+            }
+            .store(in: &subs)
     }
 
     private func repositionForCurrentScreen() {
