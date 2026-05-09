@@ -32,7 +32,7 @@ final class UsageStore: ObservableObject {
         // data". Reset times are recomputed each refresh so the countdowns
         // tick down naturally on camera. Off by default — only fires when
         // CODEXISLAND_DEMO=1 is set in the launching env.
-        if ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1" {
+        if AppEnvironment.isDemo {
             let now = Date()
             self.claude = AppUsage(
                 fiveHour: WindowUsage(

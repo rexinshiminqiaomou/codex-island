@@ -27,8 +27,7 @@ where S.RawValue == String {
         let raw = UserDefaults.standard.string(forKey: styleKey) ?? ""
         self.style = S(rawValue: raw) ?? defaultStyle
         // Demo mode keeps the ⌘-click hint visible regardless of prior session.
-        let demo = ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1"
-        self.hasCycledStyle = demo ? false : UserDefaults.standard.bool(forKey: cycledKey)
+        self.hasCycledStyle = AppEnvironment.isDemo ? false : UserDefaults.standard.bool(forKey: cycledKey)
     }
 
     func cycle() {

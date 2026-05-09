@@ -32,7 +32,7 @@ private struct SparkSVG: View {
     /// recordings actually look like a heavy user instead of a quiet one.
     private func generatePoints(width: CGFloat, height: CGFloat) -> [CGPoint] {
         let n = 36
-        let demo = ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1"
+        let demo = AppEnvironment.isDemo
         let startFactor: Double = demo ? 0.85 : 0.4
         let targetFactor: Double = demo ? 1.0 : 0.7
         let noiseAmpA: Double = demo ? 14 : 7

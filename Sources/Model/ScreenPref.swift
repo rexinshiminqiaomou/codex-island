@@ -34,8 +34,7 @@ final class ScreenPref: ObservableObject {
         // launch so screen recordings always capture it. didSet does not
         // run for init assignments, so this never persists back to
         // UserDefaults — the real app's onboarding state is preserved.
-        let demo = ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1"
-        self.hasSwipedScreen = demo ? false : UserDefaults.standard.bool(forKey: Self.swipedKey)
+        self.hasSwipedScreen = AppEnvironment.isDemo ? false : UserDefaults.standard.bool(forKey: Self.swipedKey)
     }
 
     /// Edge-clamped carousel — swiping past the rightmost page does

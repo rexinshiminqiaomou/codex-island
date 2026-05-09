@@ -296,7 +296,7 @@ struct SettingsView: View {
     }
 
     private var isDevMode: Bool {
-        ProcessInfo.processInfo.environment["CODEXISLAND_DEBUG"] == "1"
+        AppEnvironment.isDebug
     }
 
     /// Resets the engine's crossing memory before injecting so each click

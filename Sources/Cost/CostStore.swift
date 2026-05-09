@@ -33,7 +33,7 @@ final class CostStore: ObservableObject {
     }
 
     private init() {
-        if ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1" {
+        if AppEnvironment.isDemo {
             loadDemoData()
             return
         }
@@ -44,7 +44,7 @@ final class CostStore: ObservableObject {
         // Demo mode: skip log scanning, inject hand-tuned numbers that
         // tell a "user extracts more value than the $200 subscription"
         // story. Never persists, so real cache is preserved.
-        if ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1" {
+        if AppEnvironment.isDemo {
             loadDemoData()
             return
         }

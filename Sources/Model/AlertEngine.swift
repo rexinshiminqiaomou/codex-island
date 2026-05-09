@@ -186,7 +186,7 @@ final class AlertEngine: ObservableObject {
     }
 
     private func isPulseSuppressed() -> Bool {
-        if ProcessInfo.processInfo.environment["CODEXISLAND_DEMO"] == "1" {
+        if AppEnvironment.isDemo {
             return true
         }
         // Panel-expanded suppression: we don't have a direct handle to the
