@@ -4,6 +4,67 @@ User-facing changes per release. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); dates are when the
 tag was cut.
 
+## [0.1.4] - 2026-05-09
+
+A polish + hardening release. One user-visible fix in Settings; the rest
+is interior work — perf, refactor, and three release-pipeline guardrails
+that exist so a botched future release doesn't silently brick auto-update.
+
+### Fixed
+
+- **Settings → Providers now shows auth errors instead of `0%`.** When
+  Claude or Codex can't be reached (auth missing, expired, rate-limited),
+  the row used to render `synced 2m ago · 0% / 0%` — the most authoritative
+  diagnostic surface in the app silently masked the real reason. It now
+  shows `⚠ auth required — run claude` (or whichever error fired) in place
+  of the `0%`, per window.
+
+### Internal
+
+- **`IslandRootView` decomposed.** The root view used to observe seven
+  stores; any `@Published` emission re-evaluated the whole tree, including
+  every overlay and gesture closure. Split into `GlowLayer`, `LogoOverlay`,
+  and `PeekPillOverlay` children, each subscribed to only what they read.
+  Up to 8 redundant body re-evals per poll cycle eliminated.
+- **`AppEnvironment` centralizes mode flags.** `CODEXISLAND_DEMO` /
+  `CODEXISLAND_DEBUG` were checked across eight files via raw
+  `ProcessInfo.processInfo.environment["..."]` lookups. Resolved once at
+  launch into a typed enum (`AppEnvironment.isDemo`, `.isDebug`); a typo in
+  any one literal can no longer silently miss the mode.
+- **Generic `LogParseCache<Event>` shared by both log readers.**
+  `ClaudeLogReader` and `CodexLogReader` previously duplicated ~70-80% of
+  their cache + file-walk scaffolding. Extracted to one generic. Net
+  −218 LOC across the two reader files. As a behavioral side effect, the
+  Codex reader now uses the same 64 KB chunked streaming reader as Claude,
+  closing a peak-RSS spike during 30-day rollout scans. Cache JSON shape
+  is byte-identical, so existing caches survive the upgrade.
+
+### Release pipeline
+
+These all guard against silent bricks of Sparkle auto-update or the
+Homebrew cask. None affect the running app — but if any one of them ever
+fires, you'll get a loud failure at release time instead of a silently
+broken update channel weeks later.
+
+- **`build.sh` and `release.sh` reject non-semver `VERSION`.** A
+  `VERSION` of `1` or `1.0` parses as `[1]` under Apple's component-wise
+  comparator, which is *larger* than `0.0.99` — Sparkle would never offer
+  any update to the affected installs. Tagging now fails loud at
+  `error: VERSION must be X.Y.Z`.
+- **`release.sh` aborts on empty EdDSA signature.** `set -euo pipefail`
+  doesn't catch a zero-exit with malformed `sign_update` output. An
+  appcast with `sparkle:edSignature=""` is rejected silently by every
+  Sparkle client. The release now fails before the appcast is written.
+- **CI uses an explicit DMG path for SHA-256.** A glob that matched no
+  files would silently produce an empty SHA, which then `sed`'d into the
+  Homebrew cask without changing it — `brew install` mismatched on every
+  user. The path is now derived from the tag and existence-checked.
+- **`build.sh` propagates Sparkle XPC codesign failures.** Previously
+  swallowed via `2>/dev/null || true`, surfacing only at the user's first
+  Check Now click as "The updater failed to start." The path-existence
+  guard kept the original "tolerate missing helpers" behavior; real
+  signing errors now fail the build.
+
 ## [0.1.0] - 2026-05-05
 
 Three changes on top of the 0.0.10 baseline. The minor-version bump signals
