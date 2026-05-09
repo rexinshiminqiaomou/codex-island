@@ -3,12 +3,6 @@ import AppKit
 
 struct IslandRootView: View {
     @ObservedObject var model: IslandModel
-    @ObservedObject private var visibility = ProviderVisibilityStore.shared
-    @ObservedObject private var usageStore = UsageStore.shared
-    @ObservedObject private var costStore = CostStore.shared
-    @ObservedObject private var lowPower = LowPowerModeStore.shared
-    @ObservedObject private var alerts = AlertEngine.shared
-    @ObservedObject private var occlusion = WindowOcclusionStore.shared
     @State private var hovering = false
     @State private var contentVisible = false
     @State private var pillsVisible = false
@@ -30,55 +24,15 @@ struct IslandRootView: View {
             // with the spring for main-thread budget and showing up as
             // hover-spring jank.
             ZStack {
-                // Default: ambient orbit runs continuously. Low-power mode
-                // restricts it to the three "glow events" — refresh, hover,
-                // or an active limit alert — so the island stays dark at
-                // rest but lights up consistently for any meaningful state
-                // change. The orbit color follows the alert severity so
-                // the entire glow (halo + sweep) reads as one consistent
-                // color when above threshold.
-                LoadingSweep(
-                    // Pause entirely when the window is occluded by a
-                    // fullscreen app or display sleep — the user can't
-                    // see it anyway, so re-shading the gradient at 30Hz
-                    // is pure waste. `effectiveEnabled` also folds in
-                    // macOS system Low Power Mode, so the sweep auto-
-                    // pauses on battery save.
-                    active: !occlusion.isOccluded
-                        && (lowPower.effectiveEnabled ? glowEventActive : true),
-                    tint: glowColor
+                // The silhouette + halo + sweep all depend on alert
+                // severity and the LPM event predicate, so they live in
+                // GlowLayer. Hoisting them out of this body means a
+                // UsageStore/AlertEngine emission no longer re-evaluates
+                // root's overlays, gestures, or the ExpandedView branch.
+                GlowLayer(
+                    isExpanded: model.state == .expanded,
+                    hovering: hovering
                 )
-
-                IslandShape()
-                    .fill(.black)
-                    .overlay {
-                        IslandShape()
-                            .strokeBorder(
-                                .white.opacity(model.state == .expanded ? 0.12 : 0),
-                                lineWidth: 0.5
-                            )
-                    }
-                    // Halo follows LPM's event predicate: under LPM it's
-                    // suppressed at rest and lights up only on refresh,
-                    // hover, or an active alert. Off-LPM it stays at the
-                    // ambient 0.35 the way it always has.
-                    .shadow(
-                        color: glowColor.opacity(
-                            lowPower.effectiveEnabled ? (glowEventActive ? 0.35 : 0) : 0.35
-                        ),
-                        radius: 14, y: 0
-                    )
-                    .animation(.easeInOut(duration: 0.25), value: glowEventActive)
-                    // Cross-fade the glow hue when severity steps cobalt →
-                    // amber → red. Without this, a 79% → 80% refresh tick
-                    // visibly snaps; with it, the boundary feels like a
-                    // gradient. easeInOut so the transition has no harsh
-                    // start or end — the color is "just there now."
-                    .animation(.easeInOut(duration: 0.45), value: alerts.severity)
-                    .shadow(
-                        color: model.state == .expanded ? .black.opacity(0.5) : .clear,
-                        radius: 20, y: 10
-                    )
 
                 if model.state == .expanded {
                     ExpandedView(model: model)
@@ -120,53 +74,43 @@ struct IslandRootView: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .topLeading) {
-                    logo(claudeLogo, color: IslandColor.claude, alignment: .leading)
-                        .opacity(visibility.claudeVisible ? 1 : 0.30)
-                        .saturation(visibility.claudeVisible ? 1 : 0)
-                        .accessibilityLabel(visibility.claudeVisible ? "Claude" : "Claude (hidden)")
+                    LogoOverlay(
+                        image: claudeLogo,
+                        color: IslandColor.claude,
+                        provider: .claude,
+                        edgePadding: logoEdgePadding,
+                        topPadding: max(0, (model.notch.height - 20) / 2)
+                    )
                 }
                 .overlay(alignment: .topTrailing) {
-                    logo(openaiLogo, color: IslandColor.codex, alignment: .trailing)
-                        .opacity(visibility.codexVisible ? 1 : 0.30)
-                        .saturation(visibility.codexVisible ? 1 : 0)
-                        .accessibilityLabel(visibility.codexVisible ? "OpenAI" : "OpenAI (hidden)")
+                    LogoOverlay(
+                        image: openaiLogo,
+                        color: IslandColor.codex,
+                        provider: .codex,
+                        edgePadding: logoEdgePadding,
+                        topPadding: max(0, (model.notch.height - 20) / 2)
+                    )
                 }
                 .overlay(alignment: .topLeading) {
                     // Pill lives in the new outboard slot (the 78pt the
                     // silhouette grew on entering peek). 14pt inset from the
                     // silhouette's new leading edge keeps it visually
                     // breathing inside the rounded corner.
-                    if model.state != .compact && visibility.claudeVisible {
-                        NotchPeekPill(
-                            usage: usageStore.claude.fiveHour,
-                            loading: usageStore.loading,
-                            tint: IslandColor.claude,
-                            alignment: .leading,
-                            severity: alerts.claudeSeverity
+                    if model.state != .compact {
+                        PeekPillOverlay(
+                            provider: .claude,
+                            topPadding: max(0, (model.notch.height - 14) / 2),
+                            pillsVisible: pillsVisible
                         )
-                        .padding(.leading, 14)
-                        .padding(.top, max(0, (model.notch.height - 14) / 2))
-                        .opacity(pillsVisible ? 1 : 0)
-                        .offset(x: pillsVisible ? 0 : -6)
-                        .allowsHitTesting(false)
-                        .accessibilityLabel(peekLabel(for: usageStore.claude.fiveHour, provider: "Claude"))
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if model.state != .compact && visibility.codexVisible {
-                        NotchPeekPill(
-                            usage: usageStore.codex.fiveHour,
-                            loading: usageStore.loading,
-                            tint: IslandColor.codex,
-                            alignment: .trailing,
-                            severity: alerts.codexSeverity
+                    if model.state != .compact {
+                        PeekPillOverlay(
+                            provider: .codex,
+                            topPadding: max(0, (model.notch.height - 14) / 2),
+                            pillsVisible: pillsVisible
                         )
-                        .padding(.trailing, 14)
-                        .padding(.top, max(0, (model.notch.height - 14) / 2))
-                        .opacity(pillsVisible ? 1 : 0)
-                        .offset(x: pillsVisible ? 0 : 6)
-                        .allowsHitTesting(false)
-                        .accessibilityLabel(peekLabel(for: usageStore.codex.fiveHour, provider: "Codex"))
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
@@ -269,14 +213,14 @@ struct IslandRootView: View {
                     .flatMap { NSImage(contentsOf: $0) }
             }
         }
-        .onReceive(alerts.$pulseEvent) { event in
+        .onReceive(AlertEngine.shared.$pulseEvent) { event in
             guard let event, event.id != pulseToken else { return }
             pulseToken = event.id
             handlePulse(event)
             // Consume the event so a re-emission with the same id doesn't
             // re-trigger; the engine writes a fresh PulseEvent for each new
             // crossing tick.
-            alerts.pulseEvent = nil
+            AlertEngine.shared.pulseEvent = nil
         }
     }
 
@@ -317,6 +261,97 @@ struct IslandRootView: View {
         }
     }
 
+    private var accessibilityHintForState: String {
+        switch model.state {
+        case .compact:  return "Hover to peek usage. Click to expand. Command-click to cycle visualization."
+        case .peek:     return "Click to expand. Command-click to cycle visualization."
+        case .expanded: return "Command-click to cycle visualization."
+        }
+    }
+
+    /// Logo's distance from the silhouette's leading/trailing edge. In
+    /// `.peek` we offset the logo inward by `pillSlotWidth` so it stays
+    /// physically pinned to its compact position while the silhouette grows
+    /// outward — leaving the new outboard space for the percentage pill.
+    /// Compact and expanded keep the logo at the silhouette edge (existing
+    /// behavior; expanded panel layout depends on it).
+    private var logoEdgePadding: CGFloat {
+        switch model.state {
+        case .compact, .expanded: return 9
+        case .peek:               return model.pillSlotWidth + 9
+        }
+    }
+}
+
+/// Silhouette + halo + animated sweep. Bundles every layer whose
+/// appearance depends on alert severity or the Low Power Mode event
+/// predicate, so a UsageStore/AlertEngine/CostStore emission only
+/// invalidates this child's body — not the root view's overlays,
+/// gestures, or expanded-content branch.
+private struct GlowLayer: View {
+    let isExpanded: Bool
+    let hovering: Bool
+
+    @ObservedObject private var usageStore = UsageStore.shared
+    @ObservedObject private var costStore = CostStore.shared
+    @ObservedObject private var lowPower = LowPowerModeStore.shared
+    @ObservedObject private var alerts = AlertEngine.shared
+    @ObservedObject private var occlusion = WindowOcclusionStore.shared
+
+    var body: some View {
+        ZStack {
+            // Default: ambient orbit runs continuously. Low-power mode
+            // restricts it to the three "glow events" — refresh, hover,
+            // or an active limit alert — so the island stays dark at
+            // rest but lights up consistently for any meaningful state
+            // change. The orbit color follows the alert severity so
+            // the entire glow (halo + sweep) reads as one consistent
+            // color when above threshold.
+            LoadingSweep(
+                // Pause entirely when the window is occluded by a
+                // fullscreen app or display sleep — the user can't
+                // see it anyway, so re-shading the gradient at 30Hz
+                // is pure waste. `effectiveEnabled` also folds in
+                // macOS system Low Power Mode, so the sweep auto-
+                // pauses on battery save.
+                active: !occlusion.isOccluded
+                    && (lowPower.effectiveEnabled ? glowEventActive : true),
+                tint: glowColor
+            )
+
+            IslandShape()
+                .fill(.black)
+                .overlay {
+                    IslandShape()
+                        .strokeBorder(
+                            .white.opacity(isExpanded ? 0.12 : 0),
+                            lineWidth: 0.5
+                        )
+                }
+                // Halo follows LPM's event predicate: under LPM it's
+                // suppressed at rest and lights up only on refresh,
+                // hover, or an active alert. Off-LPM it stays at the
+                // ambient 0.35 the way it always has.
+                .shadow(
+                    color: glowColor.opacity(
+                        lowPower.effectiveEnabled ? (glowEventActive ? 0.35 : 0) : 0.35
+                    ),
+                    radius: 14, y: 0
+                )
+                .animation(.easeInOut(duration: 0.25), value: glowEventActive)
+                // Cross-fade the glow hue when severity steps cobalt →
+                // amber → red. Without this, a 79% → 80% refresh tick
+                // visibly snaps; with it, the boundary feels like a
+                // gradient. easeInOut so the transition has no harsh
+                // start or end — the color is "just there now."
+                .animation(.easeInOut(duration: 0.45), value: alerts.severity)
+                .shadow(
+                    color: isExpanded ? .black.opacity(0.5) : .clear,
+                    radius: 20, y: 10
+                )
+        }
+    }
+
     /// Under Low Power Mode the halo + sweep are gated on this predicate:
     /// the user sees glow only when something is happening (a fetch is in
     /// flight, the cursor is hovering, or an alert is active). Off-LPM it's
@@ -340,12 +375,117 @@ struct IslandRootView: View {
         case .critical: return IslandColor.alertRed
         }
     }
+}
 
-    private var accessibilityHintForState: String {
-        switch model.state {
-        case .compact:  return "Hover to peek usage. Click to expand. Command-click to cycle visualization."
-        case .peek:     return "Click to expand. Command-click to cycle visualization."
-        case .expanded: return "Command-click to cycle visualization."
+/// Per-provider brand logo overlay. Observes only ProviderVisibilityStore
+/// so a UsageStore/CostStore tick doesn't re-render the logo image or
+/// re-evaluate its accessibility label.
+private struct LogoOverlay: View {
+    let image: NSImage?
+    let color: Color
+    let provider: AlertEngine.Provider
+    let edgePadding: CGFloat
+    let topPadding: CGFloat
+
+    @ObservedObject private var visibility = ProviderVisibilityStore.shared
+
+    var body: some View {
+        if let image {
+            let visible = isVisible
+            let label = providerLabel
+            Image(nsImage: image)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(color)
+                .frame(width: 20, height: 20)
+                .padding(provider == .claude ? .leading : .trailing, edgePadding)
+                .padding(.top, topPadding)
+                .opacity(visible ? 1 : 0.30)
+                .saturation(visible ? 1 : 0)
+                .accessibilityLabel(visible ? label : "\(label) (hidden)")
+        }
+    }
+
+    private var isVisible: Bool {
+        switch provider {
+        case .claude: return visibility.claudeVisible
+        case .codex:  return visibility.codexVisible
+        }
+    }
+
+    private var providerLabel: String {
+        switch provider {
+        case .claude: return "Claude"
+        case .codex:  return "OpenAI"
+        }
+    }
+}
+
+/// Per-provider peek pill overlay. Observes ProviderVisibilityStore,
+/// UsageStore, and AlertEngine — but not CostStore, so a Codex log
+/// scan completing doesn't re-render the pill that has no cost data
+/// in it.
+private struct PeekPillOverlay: View {
+    let provider: AlertEngine.Provider
+    let topPadding: CGFloat
+    let pillsVisible: Bool
+
+    @ObservedObject private var visibility = ProviderVisibilityStore.shared
+    @ObservedObject private var usageStore = UsageStore.shared
+    @ObservedObject private var alerts = AlertEngine.shared
+
+    var body: some View {
+        if isVisible {
+            let window = currentWindow
+            NotchPeekPill(
+                usage: window,
+                loading: usageStore.loading,
+                tint: tint,
+                alignment: provider == .claude ? .leading : .trailing,
+                severity: severity
+            )
+            .padding(provider == .claude ? .leading : .trailing, 14)
+            .padding(.top, topPadding)
+            .opacity(pillsVisible ? 1 : 0)
+            .offset(x: pillsVisible ? 0 : (provider == .claude ? -6 : 6))
+            .allowsHitTesting(false)
+            .accessibilityLabel(peekLabel(for: window, provider: providerLabel))
+        }
+    }
+
+    private var isVisible: Bool {
+        switch provider {
+        case .claude: return visibility.claudeVisible
+        case .codex:  return visibility.codexVisible
+        }
+    }
+
+    private var currentWindow: WindowUsage {
+        switch provider {
+        case .claude: return usageStore.claude.fiveHour
+        case .codex:  return usageStore.codex.fiveHour
+        }
+    }
+
+    private var severity: AlertEngine.Severity {
+        switch provider {
+        case .claude: return alerts.claudeSeverity
+        case .codex:  return alerts.codexSeverity
+        }
+    }
+
+    private var tint: Color {
+        switch provider {
+        case .claude: return IslandColor.claude
+        case .codex:  return IslandColor.codex
+        }
+    }
+
+    private var providerLabel: String {
+        switch provider {
+        case .claude: return "Claude"
+        case .codex:  return "Codex"
         }
     }
 
@@ -362,33 +502,6 @@ struct IslandRootView: View {
             ? "resets in \(Int((remaining / 3600).rounded(.down))) hours"
             : "resets in \(max(1, Int((remaining / 60).rounded(.down)))) minutes"
         return "\(provider): \(pct) percent of 5-hour window used, \(resetPhrase)"
-    }
-
-    /// Logo's distance from the silhouette's leading/trailing edge. In
-    /// `.peek` we offset the logo inward by `pillSlotWidth` so it stays
-    /// physically pinned to its compact position while the silhouette grows
-    /// outward — leaving the new outboard space for the percentage pill.
-    /// Compact and expanded keep the logo at the silhouette edge (existing
-    /// behavior; expanded panel layout depends on it).
-    private var logoEdgePadding: CGFloat {
-        switch model.state {
-        case .compact, .expanded: return 9
-        case .peek:               return model.pillSlotWidth + 9
-        }
-    }
-
-    @ViewBuilder
-    private func logo(_ image: NSImage?, color: Color, alignment: HorizontalAlignment) -> some View {
-        if let image {
-            Image(nsImage: image)
-                .resizable()
-                .renderingMode(.template)
-                .aspectRatio(contentMode: .fit)
-                .foregroundStyle(color)
-                .frame(width: 20, height: 20)
-                .padding(alignment == .leading ? .leading : .trailing, logoEdgePadding)
-                .padding(.top, max(0, (model.notch.height - 20) / 2))
-        }
     }
 }
 
