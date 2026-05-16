@@ -3,7 +3,8 @@ import Combine
 
 /// Singleton equivalent of `UsageStore` for the cost screen. Reads local
 /// session logs (Claude Code + Codex CLI), aggregates today + month-to-date
-/// spend per provider, and publishes the result for SwiftUI consumers.
+/// spend plus overview token history per provider, and publishes the result
+/// for SwiftUI consumers.
 ///
 /// Per-provider loading flags drive parallel scans that commit independently
 /// — Codex (small) appears within ~50ms while Claude (often 20k+ events)
@@ -22,7 +23,7 @@ final class CostStore: ObservableObject {
 
     var loading: Bool { claudeLoading || codexLoading }
 
-    private static let cacheKey = "MacIsland.costCache.v3"
+    private static let cacheKey = "MacIsland.costCache.v7"
     private static let cacheEncoder = JSONEncoder()
     private static let cacheDecoder = JSONDecoder()
     private var pollTimer: Timer?
@@ -53,7 +54,7 @@ final class CostStore: ObservableObject {
         if !claudeLoading {
             claudeLoading = true
             Task.detached(priority: .userInitiated) { [weak self] in
-                let events = ClaudeLogReader.scan()
+                let events = ClaudeLogReader.scan(lookbackDays: Self.yearHistoryDays())
                 let cost = Self.summarize(events: events)
                 await self?.commitClaude(cost)
             }
@@ -61,7 +62,7 @@ final class CostStore: ObservableObject {
         if !codexLoading {
             codexLoading = true
             Task.detached(priority: .userInitiated) { [weak self] in
-                let events = CodexLogReader.scan()
+                let events = CodexLogReader.scan(lookbackDays: Self.yearHistoryDays())
                 let cost = Self.summarize(events: events)
                 await self?.commitCodex(cost)
             }
@@ -129,7 +130,12 @@ final class CostStore: ObservableObject {
                 dollars: 1510.80, tokens: 2_170_970_947, billableTokens: 217_097_094,
                 series: [4.32, 11.52, 41.47, 47.80, 67.99, 88.68, 208.14, 249.74, 327.76, 406.09, 438.15, 462.90, 477.83, 576.16, 618.03, 689.91, 710.34, 805.93, 851.29, 866.94, 866.94, 902.46, 951.91, 1010.17, 1073.80, 1128.92, 1182.69, 1219.69, 1366.31, 1510.80],
                 label: "April", error: nil, unknownModels: []
-            )
+            ),
+            dailyTokens: Self.demoDailyBuckets([
+                24, 31, 128, 44, 82, 76, 310, 122, 218, 236,
+                98, 64, 47, 286, 140, 205, 59, 276, 119, 48,
+                0, 86, 136, 154, 168, 148, 132, 94, 402, 211,
+            ], millionScale: 1_000_000)
         )
         // Codex: evening-person pattern — flat all morning, light midday,
         // explodes 6pm-11pm. Single big surge contrasts Claude's two-peak day.
@@ -145,9 +151,40 @@ final class CostStore: ObservableObject {
                 dollars: 1342.60, tokens: 1_614_300_000, billableTokens: 322_860_000,
                 series: [12.20, 26.70, 43.50, 62.40, 83.70, 107.10, 132.80, 160.70, 190.90, 223.30, 257.90, 294.80, 333.90, 375.30, 418.90, 464.70, 512.80, 563.10, 615.70, 670.50, 727.50, 786.80, 848.30, 912.00, 978.00, 1046.20, 1116.70, 1189.40, 1264.30, 1342.60],
                 label: "April", error: nil, unknownModels: []
-            )
+            ),
+            dailyTokens: Self.demoDailyBuckets([
+                12, 18, 24, 29, 37, 42, 51, 59, 66, 74,
+                83, 90, 99, 108, 117, 124, 136, 145, 157, 166,
+                175, 188, 201, 214, 228, 239, 254, 268, 282, 164,
+            ], millionScale: 1_000_000)
         )
         self.lastUpdated = Date()
+    }
+
+    private static func demoDailyBuckets(
+        _ values: [Int],
+        millionScale: Int
+    ) -> [DailyTokenBucket] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        let days = Self.yearHistoryDays()
+        let today = cal.startOfDay(for: Date())
+        let start = cal.date(byAdding: .day, value: -(days - 1), to: today) ?? today
+        return (0..<days).map { offset in
+            let day = cal.date(byAdding: .day, value: offset, to: start) ?? start
+            let value = values[offset % values.count]
+            let tokens = value * millionScale
+            return DailyTokenBucket(dayStart: day, tokens: tokens, billableTokens: tokens / 10)
+        }
+    }
+
+    nonisolated private static func yearHistoryDays(now: Date = Date()) -> Int {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        let today = cal.startOfDay(for: now)
+        let yearStart = cal.date(from: cal.dateComponents([.year], from: today)) ?? today
+        let yearDays = (cal.dateComponents([.day], from: yearStart, to: today).day ?? 0) + 1
+        return max(1, yearDays)
     }
 
     /// Pure aggregation — single pass over events. Lives as a static so the
@@ -160,6 +197,12 @@ final class CostStore: ObservableObject {
         let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? startOfDay
         let currentHour = cal.dateComponents([.hour], from: now).hour ?? 0
         let currentDay = (cal.dateComponents([.day], from: now).day ?? 1) - 1
+        let historyDays = Self.yearHistoryDays(now: now)
+        let historyStart = cal.date(
+            byAdding: .day,
+            value: -(historyDays - 1),
+            to: startOfDay
+        ) ?? startOfDay
         // Rolling windows for per-model breakdown — approximate the live
         // tile windows. We don't know the server's exact window alignment
         // for either, so "last N hours from now" is the practical proxy.
@@ -172,6 +215,8 @@ final class CostStore: ObservableObject {
         var monthDollars = 0.0, monthTokens = 0, monthBillable = 0
         var hourlyBuckets = Array(repeating: 0.0, count: currentHour + 1)
         var dailyBuckets = Array(repeating: 0.0, count: currentDay + 1)
+        var historyTokenBuckets = Array(repeating: 0, count: historyDays)
+        var historyBillableBuckets = Array(repeating: 0, count: historyDays)
         // Filtered to non-zero token events so handshake/stub rows don't
         // show up as "unpriced" warnings — the user only cares about
         // models that actually moved tokens.
@@ -196,7 +241,7 @@ final class CostStore: ObservableObject {
         // Apr 26–30 from the weekly slice. The 5h slice never had this
         // problem (5h ⊂ today ⊂ month), but adding weekly broke the
         // assumption — keep the broader guard.
-        let earliestStart = min(monthStart, weekStart)
+        let earliestStart = min(monthStart, weekStart, historyStart)
         for event in events {
             guard event.timestamp >= earliestStart else { continue }
             let cost = Pricing.cost(for: event)
@@ -204,10 +249,19 @@ final class CostStore: ObservableObject {
             // (ccusage parity); `billable` is input + output only, matching
             // Anthropic's claude.ai stats panel which excludes cache tokens.
             // Persisting both lets the Settings toggle flip the displayed
-            // figure instantly without re-scanning 30 days of session logs.
+            // figure instantly without re-scanning session logs.
             let billable = event.inputTokens + event.outputTokens
             let tokens = billable + event.cacheCreationTokens + event.cacheReadTokens
             let isUnpriced = tokens > 0 && !Pricing.isKnown(event.model)
+
+            if event.timestamp >= historyStart {
+                let eventDay = cal.startOfDay(for: event.timestamp)
+                let dayOffset = cal.dateComponents([.day], from: historyStart, to: eventDay).day ?? -1
+                if historyTokenBuckets.indices.contains(dayOffset) {
+                    historyTokenBuckets[dayOffset] += tokens
+                    historyBillableBuckets[dayOffset] += billable
+                }
+            }
 
             // Month aggregation gated separately now that the outer guard
             // is `min(monthStart, weekStart)` (so previous-month events
@@ -284,8 +338,30 @@ final class CostStore: ObservableObject {
                 unknownModels: monthUnknown.sorted()
             ),
             recentByModel: recentRows,
-            weekByModel: weekRows
+            weekByModel: weekRows,
+            dailyTokens: Self.dailyTokenBuckets(
+                start: historyStart,
+                tokens: historyTokenBuckets,
+                billableTokens: historyBillableBuckets,
+                calendar: cal
+            )
         )
+    }
+
+    nonisolated private static func dailyTokenBuckets(
+        start: Date,
+        tokens: [Int],
+        billableTokens: [Int],
+        calendar: Calendar
+    ) -> [DailyTokenBucket] {
+        tokens.indices.map { index in
+            let day = calendar.date(byAdding: .day, value: index, to: start) ?? start
+            return DailyTokenBucket(
+                dayStart: day,
+                tokens: tokens[index],
+                billableTokens: billableTokens[index]
+            )
+        }
     }
 
     /// Build sorted `ModelUsageRow`s from the two parallel per-model maps
@@ -385,6 +461,8 @@ final class CostStore: ObservableObject {
         var claudeMonthUnknown: [String] = []
         var codexTodayUnknown: [String] = []
         var codexMonthUnknown: [String] = []
+        var claudeDailyTokens: [DailyTokenBucket]
+        var codexDailyTokens: [DailyTokenBucket]
         var lastUpdated: Date?
     }
 
@@ -412,6 +490,8 @@ final class CostStore: ObservableObject {
             claudeMonthUnknown: claude.month.unknownModels,
             codexTodayUnknown: codex.today.unknownModels,
             codexMonthUnknown: codex.month.unknownModels,
+            claudeDailyTokens: claude.dailyTokens,
+            codexDailyTokens: codex.dailyTokens,
             lastUpdated: lastUpdated
         )
         if let data = try? Self.cacheEncoder.encode(snap) {
@@ -433,7 +513,8 @@ final class CostStore: ObservableObject {
                               billableTokens: snap.claudeMonthBillable,
                               series: snap.claudeMonthSeries,
                               label: CostBucketing.currentMonthLabel(), error: nil,
-                              unknownModels: snap.claudeMonthUnknown)
+                              unknownModels: snap.claudeMonthUnknown),
+            dailyTokens: snap.claudeDailyTokens
         )
         self.codex = ProviderCost(
             today: CostWindow(dollars: snap.codexToday, tokens: snap.codexTodayTokens,
@@ -444,7 +525,8 @@ final class CostStore: ObservableObject {
                               billableTokens: snap.codexMonthBillable,
                               series: snap.codexMonthSeries,
                               label: CostBucketing.currentMonthLabel(), error: nil,
-                              unknownModels: snap.codexMonthUnknown)
+                              unknownModels: snap.codexMonthUnknown),
+            dailyTokens: snap.codexDailyTokens
         )
         self.lastUpdated = snap.lastUpdated
     }

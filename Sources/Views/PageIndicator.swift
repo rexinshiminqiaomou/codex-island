@@ -1,16 +1,18 @@
 import SwiftUI
 
-/// Two-dot page indicator that mirrors the active screen. Sits in the
+/// Page indicator that mirrors the active screen. Sits in the
 /// expanded panel footer between the style chip and the live-status group.
 /// Each dot is tappable so regular-mouse users (no trackpad swipe, no
 /// horizontal wheel) have a click-to-page affordance.
 struct PageIndicator: View {
+    @ObservedObject var model: IslandModel
     @ObservedObject private var screenPref = ScreenPref.shared
 
     var body: some View {
         HStack(spacing: 5) {
-            dot(for: .usage)
-            dot(for: .cost)
+            ForEach(ScreenPref.Screen.allCases, id: \.self) { screen in
+                dot(for: screen)
+            }
         }
         .animation(.strongEaseOut, value: screenPref.screen)
     }
@@ -23,10 +25,14 @@ struct PageIndicator: View {
             // Visual stays 5pt; hit area expands ~6pt outward so the dot
             // is reachable without pixel-precise aim.
             .contentShape(Rectangle().inset(by: -6))
-            .onTapGesture { screenPref.screen = screen }
+            .onTapGesture { model.showScreen(screen) }
             .accessibilityElement()
-            .accessibilityLabel(screen == .usage ? "Usage page, 1 of 2" : "Cost page, 2 of 2")
+            .accessibilityLabel(accessibilityLabel(for: screen))
             .accessibilityAddTraits(.isButton)
             .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    private func accessibilityLabel(for screen: ScreenPref.Screen) -> String {
+        "\(screen.pageLabel) page, \(screen.pageIndex + 1) of \(ScreenPref.Screen.allCases.count)"
     }
 }

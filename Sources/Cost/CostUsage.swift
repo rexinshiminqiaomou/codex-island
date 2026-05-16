@@ -61,6 +61,16 @@ struct ModelUsageRow {
     let dollarPercent: Double
 }
 
+/// Calendar-local daily token total used by the overview contribution grid.
+/// Stores both wire-level and billable totals so future views can choose the
+/// metric without re-scanning session logs. The overview intentionally uses
+/// wire-level volume.
+struct DailyTokenBucket: Codable {
+    let dayStart: Date
+    let tokens: Int
+    let billableTokens: Int
+}
+
 /// Per-provider cost summary: today + month-to-date in calendar-local time.
 struct ProviderCost {
     var today: CostWindow
@@ -72,6 +82,9 @@ struct ProviderCost {
     /// Per-model breakdown over the rolling last 7 days, sorted by tokens
     /// descending. Approximates the weekly window used by the live tiles.
     var weekByModel: [ModelUsageRow] = []
+    /// Calendar-local daily history, oldest first, with today included as
+    /// the final bucket. Powers the overview contribution grid ranges.
+    var dailyTokens: [DailyTokenBucket] = []
 
     static let empty = ProviderCost(
         today: CostWindow(
@@ -84,7 +97,8 @@ struct ProviderCost {
             unknownModels: []
         ),
         recentByModel: [],
-        weekByModel: []
+        weekByModel: [],
+        dailyTokens: []
     )
 
     /// Placeholder values shown when a provider is toggled off in Settings.
@@ -103,6 +117,7 @@ struct ProviderCost {
             unknownModels: []
         ),
         recentByModel: [],
-        weekByModel: []
+        weekByModel: [],
+        dailyTokens: []
     )
 }

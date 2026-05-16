@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Composes the expanded panel: provider titles on top (fixed), the
-/// horizontally-paged data area in the middle (UsageView ↔ CostView),
+/// horizontally-paged data area in the middle (usage ↔ cost ↔ overview),
 /// and the footer (chip + page dots + sync status) at the bottom (fixed).
 /// Only the data area slides between pages — chrome stays put.
 struct ExpandedView: View {
@@ -10,8 +10,8 @@ struct ExpandedView: View {
     var body: some View {
         VStack(spacing: 0) {
             PanelHeader(notch: model.notch)
-            PagedContent()
-            PanelFooter()
+            PagedContent(model: model)
+            PanelFooter(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

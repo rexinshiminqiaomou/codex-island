@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Two-page horizontal carousel: the usage data row (page 0) and the cost
-/// data row (page 1). Both pages render at the full content width; the
-/// HStack is twice that width and slides via `.offset` based on
-/// `ScreenPref.screen`. Animation uses the same spring as the expanded-
-/// state shape morph for cohesion.
+/// Three-page horizontal carousel: live usage (page 0), cost (page 1), and
+/// history overview (page 2). Each page renders at the full content width;
+/// the HStack slides via `.offset` based on
+/// `ScreenPref.screen`. Horizontal movement gets its own drawer-style curve
+/// so page navigation does not inherit the island shape's spring bounce.
 ///
 /// Only the data row swipes — `PanelHeader` and `PanelFooter` are mounted
 /// outside this view so they stay fixed across page changes.
@@ -14,6 +14,7 @@ import SwiftUI
 /// left to reveal the cost screen's edge, then settles back. Subtle and
 /// time-bounded so it stops nagging once they've discovered the gesture.
 struct PagedContent: View {
+    @ObservedObject var model: IslandModel
     @ObservedObject private var screenPref = ScreenPref.shared
     @State private var peekOffset: CGFloat = 0
 
@@ -25,10 +26,12 @@ struct PagedContent: View {
                     .frame(width: pageWidth)
                 CostView()
                     .frame(width: pageWidth)
+                OverviewView(model: model)
+                    .frame(width: pageWidth)
             }
             .frame(width: pageWidth, alignment: .leading)
-            .offset(x: (screenPref.screen == .usage ? 0 : -pageWidth) + peekOffset)
-            .animation(.openMorph, value: screenPref.screen)
+            .offset(x: (-pageWidth * CGFloat(screenPref.screen.pageIndex)) + peekOffset)
+            .animation(.pageSwipe, value: screenPref.screen)
             .clipped()
             .onAppear {
                 // Discoverability cue, not decorative motion — fires even
@@ -46,7 +49,7 @@ struct PagedContent: View {
                 // composite offset doesn't jump when the real screen
                 // transition fires alongside it.
                 if swiped, peekOffset != 0 {
-                    withAnimation(.easeOut(duration: 0.25)) { peekOffset = 0 }
+                    withAnimation(.pageSwipe) { peekOffset = 0 }
                 }
             }
         }
@@ -58,17 +61,13 @@ struct PagedContent: View {
         // beat is its own gesture instead of competing with the entrance.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.40) {
             guard !screenPref.hasSwipedScreen else { return }
-            // Reuse the panel-open spring so the peek inherits the same
-            // motion identity that brought the panel into view. Springs
-            // also hand off cleanly to a real swipe if the user grabs
-            // mid-peek (both gestures animate via the same physics).
-            withAnimation(.openMorph) { peekOffset = -46 }
-            // Out spring settles ~0.42s; hold ~0.20s past settle, then
-            // return with closeMorph — snappier, matching the asymmetric
-            // open/close pace already established for the panel itself.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) {
+            // This is horizontal navigation affordance, so use the same
+            // page curve as real swipes. It feels connected to the carousel
+            // instead of to the panel's physical resize.
+            withAnimation(.pageSwipe) { peekOffset = -46 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.58) {
                 guard !screenPref.hasSwipedScreen else { return }
-                withAnimation(.closeMorph) { peekOffset = 0 }
+                withAnimation(.pageSwipe) { peekOffset = 0 }
             }
         }
     }

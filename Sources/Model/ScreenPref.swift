@@ -9,6 +9,19 @@ final class ScreenPref: ObservableObject {
     enum Screen: String, CaseIterable {
         case usage
         case cost
+        case overview
+
+        var pageIndex: Int {
+            Self.allCases.firstIndex(of: self) ?? 0
+        }
+
+        var pageLabel: String {
+            switch self {
+            case .usage:    return "Usage"
+            case .cost:     return "Cost"
+            case .overview: return "Overview"
+            }
+        }
     }
 
     private static let key = "MacIsland.screen"
@@ -42,10 +55,14 @@ final class ScreenPref: ObservableObject {
     /// Matches the iOS Home Screen rubber-band feel where the user
     /// understands they've hit a boundary instead of teleporting around.
     func advance() {
-        if screen == .usage { screen = .cost }
+        let pages = Screen.allCases
+        guard screen.pageIndex < pages.count - 1 else { return }
+        screen = pages[screen.pageIndex + 1]
     }
 
     func rewind() {
-        if screen == .cost { screen = .usage }
+        let pages = Screen.allCases
+        guard screen.pageIndex > 0 else { return }
+        screen = pages[screen.pageIndex - 1]
     }
 }

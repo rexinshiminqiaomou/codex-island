@@ -121,11 +121,13 @@ struct IslandRootView: View {
                 .onTapGesture {
                     // Cmd-click cycles the visualization style of whichever
                     // page is active. Usage rotates Ring/Bar/Stepped/Numeric/
-                    // Spark; cost rotates USD/VALUE/TOKENS/TREND.
+                    // Spark; cost rotates USD/VALUE/TOKENS/TREND. Overview
+                    // is fixed to year-to-date.
                     if NSEvent.modifierFlags.contains(.command) {
                         switch ScreenPref.shared.screen {
                         case .usage: StylePref.shared.cycle()
                         case .cost:  CostStylePref.shared.cycle()
+                        case .overview: return
                         }
                         return
                     }
@@ -260,7 +262,10 @@ struct IslandRootView: View {
         switch model.state {
         case .compact:  return "Hover to peek usage. Click to expand. Command-click to cycle visualization."
         case .peek:     return "Click to expand. Command-click to cycle visualization."
-        case .expanded: return "Command-click to cycle visualization."
+        case .expanded:
+            return ScreenPref.shared.screen == .overview
+                ? "Swipe to change pages."
+                : "Command-click to cycle visualization."
         }
     }
 

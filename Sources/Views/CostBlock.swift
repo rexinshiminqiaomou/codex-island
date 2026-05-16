@@ -50,9 +50,9 @@ struct CostTile: View {
     @ObservedObject private var usageStore = UsageStore.shared
     @ObservedObject private var tokenMode = TokenCountModeStore.shared
 
-    /// Locked to match `ChartTile.tileHeight` so swipe transitions don't
-    /// reflow the panel.
-    private static let tileHeight: CGFloat = 96
+    /// Kept slightly tighter than usage charts so the large dollar hero
+    /// clears the fixed footer without increasing the whole island height.
+    private static let tileHeight: CGFloat = 88
 
     var body: some View {
         VStack(alignment: centered ? .center : .leading, spacing: 6) {
@@ -80,6 +80,7 @@ struct CostTile: View {
             }
             .id(stylePref.style)
             .transition(.chartSwap.animation(.chartSwap))
+            .offset(y: heroYOffset)
             .frame(maxWidth: centered ? 240 : .infinity, alignment: centered ? .center : .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: centered ? .top : .topLeading)
@@ -107,6 +108,13 @@ struct CostTile: View {
     }
 
     // MARK: - Heroes
+
+    private var heroYOffset: CGFloat {
+        switch stylePref.style {
+        case .dollar, .tokens: return -10
+        case .multi, .spark:   return 0
+        }
+    }
 
     private var dollarHero: some View {
         HStack(alignment: .firstTextBaseline, spacing: 1) {

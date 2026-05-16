@@ -15,7 +15,7 @@ final class IslandWindowController {
     private var subs: Set<AnyCancellable> = []
     private var hasSeenMouseEvent = false
 
-    static let windowSize = CGSize(width: 900, height: 280)
+    static let windowSize = CGSize(width: 900, height: 360)
 
     init() {
         let notch = NotchInfo.detect(from: Self.targetScreen())

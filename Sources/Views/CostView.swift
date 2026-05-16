@@ -54,8 +54,8 @@ struct CostView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, 22)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
     }
 
     /// Cost-page breakdown swaps metric to follow the visible tile: when

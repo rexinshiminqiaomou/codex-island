@@ -41,7 +41,7 @@ enum LogParseCache {
 
     /// Stream `url` in 64 KB chunks and invoke `onLine` once per newline-
     /// terminated line, plus once for any trailing line lacking a newline.
-    /// Session JSONLs can reach 50+ MB and we walk 30 days of them, so
+    /// Session JSONLs can reach 50+ MB and we may walk months of them, so
     /// loading entire files via `Data(contentsOf:)` blows up peak memory.
     /// Buffer trim happens once per chunk (not per line) — `removeSubrange`
     /// is O(N) and per-line trimming made a single 50MB JSONL O(N²).

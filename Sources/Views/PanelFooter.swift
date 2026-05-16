@@ -7,12 +7,14 @@ import AppKit
 ///
 /// Two things change with the active screen:
 ///   1. The chip — shows the current chart-style label on the usage page
-///      (since cmd-click cycles styles there) and a static "USD" on the
-///      cost page (cost bars don't cycle).
+///      (since cmd-click cycles styles there), the current cost mode on
+///      the cost page, and a static year label on the overview page.
 ///   2. The live-status group — reflects whichever store powers the
-///      currently visible page (UsageStore on usage, CostStore on cost),
-///      so "syncing…" / "synced 5s ago" describes the data the user sees.
+///      currently visible page (UsageStore on usage, CostStore on cost
+///      and overview), so "syncing…" / "synced 5s ago" describes the
+///      data the user sees.
 struct PanelFooter: View {
+    @ObservedObject var model: IslandModel
     @ObservedObject private var pref = StylePref.shared
     @ObservedObject private var costPref = CostStylePref.shared
     @ObservedObject private var screenPref = ScreenPref.shared
@@ -28,9 +30,15 @@ struct PanelFooter: View {
             )
             .frame(height: 1)
             .padding(.horizontal, 22)
+            .opacity(screenPref.screen == .overview ? 0 : 1)
 
-            ZStack {
+            ZStack(alignment: .center) {
                 HStack(spacing: 10) {
+                    if screenPref.screen == .cost {
+                        ShareReceiptButton()
+                            .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
+                    }
+
                     chip
 
                     if !activeStyleCycled {
@@ -43,7 +51,7 @@ struct PanelFooter: View {
                         .foregroundStyle(.white.opacity(0.42))
                         .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Tip: Command-click to cycle visualization")
+                        .accessibilityLabel(cycleHintAccessibilityLabel)
                     }
 
                     Spacer()
@@ -55,8 +63,9 @@ struct PanelFooter: View {
                 // wide the chip + tip on the left or the live-status on
                 // the right grow. Independent of those widths so the dots
                 // sit at true bottom-center of the panel.
-                PageIndicator()
+                PageIndicator(model: model)
             }
+            .frame(height: 24, alignment: .center)
             .padding(.horizontal, 22)
             .padding(.top, 6)
             .padding(.bottom, 10)
@@ -70,6 +79,14 @@ struct PanelFooter: View {
         switch screenPref.screen {
         case .usage: return pref.hasCycledStyle
         case .cost:  return costPref.hasCycledStyle
+        case .overview: return true
+        }
+    }
+
+    private var cycleHintAccessibilityLabel: String {
+        switch screenPref.screen {
+        case .overview: return "Overview shows \(currentYearString) usage history"
+        case .usage, .cost: return "Tip: Command-click to cycle visualization"
         }
     }
 
@@ -79,6 +96,7 @@ struct PanelFooter: View {
             switch screenPref.screen {
             case .usage: return pref.style.label.uppercased()
             case .cost:  return costPref.style.label
+            case .overview: return currentYearString
             }
         }()
         Text(label)
@@ -104,14 +122,14 @@ struct PanelFooter: View {
     private var activeLoading: Bool {
         switch screenPref.screen {
         case .usage: return usageStore.loading
-        case .cost:  return costStore.loading
+        case .cost, .overview: return costStore.loading
         }
     }
 
     private var activeLastUpdated: Date? {
         switch screenPref.screen {
         case .usage: return usageStore.lastUpdated
-        case .cost:  return costStore.lastUpdated
+        case .cost, .overview: return costStore.lastUpdated
         }
     }
 
@@ -124,18 +142,18 @@ struct PanelFooter: View {
             HStack(spacing: 6) {
                 LiveDot(active: activeLastUpdated != nil && !activeLoading)
                 if activeLoading {
-                    Text("syncing…")
+                    Text("Syncing…")
                         .font(Typography.label)
                         .foregroundStyle(.white.opacity(0.55))
                 } else if let updated = activeLastUpdated {
-                    Text("synced")
+                    Text("Synced")
                         .font(Typography.label)
                         .foregroundStyle(.white.opacity(liveStatusHovered ? 0.85 : 0.55))
                     Text(relative(updated))
                         .font(Typography.bodyNumber)
                         .foregroundStyle(.white.opacity(liveStatusHovered ? 0.95 : 0.72))
                 } else {
-                    Text("idle")
+                    Text("Idle")
                         .font(Typography.label)
                         .foregroundStyle(.white.opacity(liveStatusHovered ? 0.7 : 0.4))
                 }
@@ -170,7 +188,7 @@ struct PanelFooter: View {
     private func triggerRefresh() {
         switch screenPref.screen {
         case .usage: usageStore.refresh()
-        case .cost:  costStore.refresh()
+        case .cost, .overview: costStore.refresh()
         }
     }
 
@@ -188,5 +206,10 @@ struct PanelFooter: View {
 
     private func relative(_ d: Date) -> String {
         Self.relativeFormatter.localizedString(for: d, relativeTo: Date())
+    }
+
+    private var currentYearString: String {
+        let year = Calendar.current.component(.year, from: Date())
+        return "\(year)"
     }
 }

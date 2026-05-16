@@ -3,7 +3,7 @@ import SwiftUI
 /// Provider titles row — Claude on the left, Codex on the right, with a
 /// notch-width spacer in the middle that hides the title content behind
 /// the physical notch. Lives outside `PagedContent` so it stays fixed
-/// while the data area swipes between usage/cost screens.
+/// while the data area swipes between usage/cost/overview screens.
 ///
 /// Plan tags ("MAX" / "PLUS") are sourced from `UsageStore` since the
 /// subscription tier is a property of the account, not the current page.
