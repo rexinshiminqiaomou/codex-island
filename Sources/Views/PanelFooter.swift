@@ -34,11 +34,6 @@ struct PanelFooter: View {
 
             ZStack(alignment: .center) {
                 HStack(spacing: 10) {
-                    if screenPref.screen == .cost {
-                        ShareReceiptButton()
-                            .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
-                    }
-
                     chip
 
                     if !activeStyleCycled {

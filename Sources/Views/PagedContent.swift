@@ -23,13 +23,15 @@ struct PagedContent: View {
             let pageWidth = geo.size.width
             HStack(spacing: 0) {
                 UsageView()
+                    .offset(y: compactPageYOffset)
                     .frame(width: pageWidth)
                 CostView()
+                    .offset(y: compactPageYOffset)
                     .frame(width: pageWidth)
                 OverviewView(model: model)
                     .frame(width: pageWidth)
             }
-            .frame(width: pageWidth, alignment: .leading)
+            .frame(width: pageWidth, height: geo.size.height, alignment: .topLeading)
             .offset(x: (-pageWidth * CGFloat(screenPref.screen.pageIndex)) + peekOffset)
             .animation(.pageSwipe, value: screenPref.screen)
             .clipped()
@@ -54,6 +56,8 @@ struct PagedContent: View {
             }
         }
     }
+
+    private let compactPageYOffset: CGFloat = -28
 
     private func schedulePeek() {
         // 0.40s lets the panel's openMorph + content fade-in settle

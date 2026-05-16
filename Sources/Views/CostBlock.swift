@@ -50,9 +50,9 @@ struct CostTile: View {
     @ObservedObject private var usageStore = UsageStore.shared
     @ObservedObject private var tokenMode = TokenCountModeStore.shared
 
-    /// Kept slightly tighter than usage charts so the large dollar hero
-    /// clears the fixed footer without increasing the whole island height.
-    private static let tileHeight: CGFloat = 88
+    /// Locked to match `ChartTile.tileHeight` so swipe transitions don't
+    /// reflow the panel.
+    private static let tileHeight: CGFloat = 96
 
     var body: some View {
         VStack(alignment: centered ? .center : .leading, spacing: 6) {

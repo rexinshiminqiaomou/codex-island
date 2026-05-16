@@ -8,10 +8,10 @@ struct SparkChart: View {
     let seed: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             ChartHead(value: value, label: label)
             SparkSVG(value: value, color: color, seed: seed)
-                .frame(height: 56)
+                .frame(height: 50)
                 .animation(.strongEaseOut, value: value)
             ChartFoot(caption: sub)
         }

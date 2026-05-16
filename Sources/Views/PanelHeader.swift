@@ -31,7 +31,7 @@ struct PanelHeader: View {
         .frame(height: 22)
         .padding(.horizontal, 16)
         .padding(.top, 4)
-        .padding(.bottom, max(0, notch.height - 22 - 4))
+        .padding(.bottom, min(14, max(0, notch.height - 22 - 4)))
     }
 
     @ViewBuilder
