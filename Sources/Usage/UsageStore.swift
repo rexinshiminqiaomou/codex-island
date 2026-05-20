@@ -161,7 +161,7 @@ final class UsageStore: ObservableObject {
     /// forever if the user closes the browser without completing).
     func reauthenticateClaude() {
         guard !claudeReauthInProgress else { return }
-        guard UsageFetcher.spawnClaudeReauth() else { return }
+        guard ClaudeCredentials.spawnReauth() else { return }
         claudeReauthInProgress = true
         reauthPollTask?.cancel()
         reauthPollTask = Task { [weak self] in

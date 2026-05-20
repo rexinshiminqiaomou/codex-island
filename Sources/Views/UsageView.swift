@@ -86,8 +86,8 @@ struct ChartsBlock: View {
     /// per-window failure, but matching pair = the underlying token genuinely
     /// lacks the required scope.
     private var needsReauth: Bool {
-        usage.fiveHour.error == UsageFetcher.claudeReauthRequiredMessage
-            && usage.weekly.error == UsageFetcher.claudeReauthRequiredMessage
+        usage.fiveHour.error == ClaudeCredentials.reauthRequiredMessage
+            && usage.weekly.error == ClaudeCredentials.reauthRequiredMessage
     }
 
     var body: some View {
@@ -98,7 +98,7 @@ struct ChartsBlock: View {
                 ChartTile(style: style, color: color, labelKey: "week",
                           window: usage.weekly, seed: seed + 1)
             }
-            if needsReauth && UsageFetcher.canPromptClaudeReauth() {
+            if needsReauth && ClaudeCredentials.canPromptReauth() {
                 ReauthButton()
             }
         }
@@ -189,8 +189,8 @@ struct ChartTile: View {
             // remediation hint reads twice (caption + button label). Users
             // without a discoverable `claude` binary still get the raw text
             // so they know the manual fix.
-            if err == UsageFetcher.claudeReauthRequiredMessage,
-               UsageFetcher.canPromptClaudeReauth() {
+            if err == ClaudeCredentials.reauthRequiredMessage,
+               ClaudeCredentials.canPromptReauth() {
                 return ""
             }
             return err
@@ -204,8 +204,8 @@ struct ChartTile: View {
             return "↻ " + Duration.compact(delta)
         }
         if let err = window.error, err != "no data" {
-            if err == UsageFetcher.claudeReauthRequiredMessage,
-               UsageFetcher.canPromptClaudeReauth() {
+            if err == ClaudeCredentials.reauthRequiredMessage,
+               ClaudeCredentials.canPromptReauth() {
                 return ""
             }
             return err
