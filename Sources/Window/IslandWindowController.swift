@@ -18,6 +18,11 @@ final class IslandWindowController {
     private var hasSeenMouseEvent = false
     private var isMouseInsideIsland = false
     private var cmdQMonitor: Any?
+    private var optionGlobalMonitor: Any?
+    private var overlayActionMonitor: Any?
+    private var lastActiveApp: NSRunningApplication?
+    private var capturesOverlayKeys = false
+    private var lastOptionToggleAt: TimeInterval = 0
 
     static let windowSize = CGSize(width: 900, height: 360)
 
@@ -44,13 +49,22 @@ final class IslandWindowController {
         )
         host.autoresizingMask = [.width, .height]
         window.contentView = host
+
+        model.$state
+            .map { $0 == .expanded }
+            .removeDuplicates()
+            .sink { [weak self] captures in
+                self?.setCapturingOverlayKeys(captures)
+            }
+            .store(in: &subs)
+        setCapturingOverlayKeys(false)
     }
 
     func show() {
         repositionForCurrentScreen()
         window.orderFrontRegardless()
-        NSApp.activate(ignoringOtherApps: true)
         installMouseTracking()
+        installInputHooks()
         observeScreenChanges()
         observeTargetChoice()
         observeOcclusion()
@@ -73,6 +87,8 @@ final class IslandWindowController {
         if let m = globalMouseMonitor { NSEvent.removeMonitor(m) }
         if let m = localMouseMonitor { NSEvent.removeMonitor(m) }
         if let m = cmdQMonitor { NSEvent.removeMonitor(m) }
+        if let m = overlayActionMonitor { NSEvent.removeMonitor(m) }
+        if let m = optionGlobalMonitor { NSEvent.removeMonitor(m) }
         trackingTimer?.invalidate()
     }
 
@@ -131,11 +147,10 @@ final class IslandWindowController {
         if window.ignoresMouseEvents == inside {
             window.ignoresMouseEvents = !inside
         }
-        if inside != isMouseInsideIsland {
-            isMouseInsideIsland = inside
-            if inside {
-                NSApp.activate(ignoringOtherApps: true)
-                window.makeKey()
+
+        if inside {
+            if !isMouseInsideIsland {
+                isMouseInsideIsland = true
                 cmdQMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                     if event.modifierFlags.contains(.command),
                        event.charactersIgnoringModifiers == "q" {
@@ -144,10 +159,307 @@ final class IslandWindowController {
                     }
                     return event
                 }
-            } else {
-                if let m = cmdQMonitor { NSEvent.removeMonitor(m) }
-                cmdQMonitor = nil
             }
+        } else if isMouseInsideIsland {
+            if let m = cmdQMonitor { NSEvent.removeMonitor(m) }
+            cmdQMonitor = nil
+            isMouseInsideIsland = false
+        }
+    }
+
+    private func installInputHooks() {
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog("[CodexIsland] Installing global Option monitor for focus-window mode.")
+        }
+        if installGlobalOptionMonitor() {
+            if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+                NSLog("[CodexIsland] Option monitor installed.")
+            }
+            return
+        }
+        NSLog("[CodexIsland] Failed to install global Option monitor.")
+    }
+
+    private func installGlobalOptionMonitor() -> Bool {
+        guard optionGlobalMonitor == nil else { return true }
+
+        let monitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .flagsChanged
+        ) { [weak self] event in
+            guard let self else { return }
+
+            if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+                NSLog(
+                    "[CodexIsland][InputMonitor] type=%@ key=%d option=%d",
+                    String(describing: event.type),
+                    Int(event.keyCode),
+                    event.modifierFlags.contains(.option) ? 1 : 0
+                )
+            }
+
+            Task { @MainActor in
+                self.handleGlobalOptionEvent(event)
+            }
+        }
+
+        guard let monitor else {
+            return false
+        }
+
+        optionGlobalMonitor = monitor
+        return true
+    }
+
+    @MainActor
+    private func handleGlobalOptionEvent(_ event: NSEvent) {
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog(
+                "[CodexIsland][InputState] type=%@ key=%d optionBit=%d state=%@",
+                String(describing: event.type),
+                Int(event.keyCode),
+                event.modifierFlags.contains(.option) ? 1 : 0,
+                String(describing: model.state)
+            )
+        }
+
+        guard event.type == .flagsChanged,
+              isOptionKeyCode(event.keyCode),
+              event.modifierFlags.contains(.option) else {
+            return
+        }
+        triggerOptionToggleIfReady()
+    }
+
+    private func installOverlayActionMonitor() {
+        guard overlayActionMonitor == nil else { return }
+
+        overlayActionMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { [weak self] event in
+            guard let self else { return event }
+            let keyCode = event.keyCode
+
+            guard self.capturesOverlayKeys,
+                  self.model.state == .expanded else {
+                return event
+            }
+
+            if event.type == .flagsChanged {
+                guard self.isOptionKeyCode(keyCode) else { return event }
+                let optionDown = event.modifierFlags.contains(.option)
+                if optionDown {
+                    Task { @MainActor in
+                        self.triggerOptionToggleIfReady()
+                    }
+                }
+                return nil
+            }
+
+            if event.type == .keyDown, event.isARepeat {
+                if self.isOptionKeyCode(keyCode) || self.isOverlayActionKey(keyCode) {
+                    return nil
+                }
+                return event
+            }
+
+            if self.isOptionKeyCode(keyCode) {
+                if event.type == .keyUp {
+                    return nil
+                }
+
+                if event.type == .keyDown {
+                    Task { @MainActor in
+                        self.triggerOptionToggleIfReady()
+                    }
+                }
+                return nil
+            } else if !self.isOverlayActionKey(keyCode) {
+                return event
+            }
+
+            guard event.type == .keyDown else {
+                return nil
+            }
+
+            Task { @MainActor in
+                self.handleOverlayKeyDown(keyCode: keyCode)
+            }
+            return nil
+        }
+
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog("[CodexIsland] Local overlay key monitor installed.")
+        }
+    }
+
+    private func removeOverlayActionMonitor() {
+        if let monitor = overlayActionMonitor {
+            NSEvent.removeMonitor(monitor)
+            overlayActionMonitor = nil
+            if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+                NSLog("[CodexIsland] Local overlay key monitor removed.")
+            }
+        }
+    }
+
+    private func isOptionKeyCode(_ keyCode: UInt16) -> Bool {
+        keyCode == 58 || keyCode == 61
+    }
+
+    private func setCapturingOverlayKeys(_ enabled: Bool) {
+        capturesOverlayKeys = enabled
+        if enabled {
+            installOverlayActionMonitor()
+        } else {
+            removeOverlayActionMonitor()
+        }
+    }
+
+    @MainActor
+    private func triggerOptionToggleIfReady() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastOptionToggleAt > 0.18 else { return }
+        lastOptionToggleAt = now
+        finishOptionGesture()
+    }
+
+    @MainActor
+    private func finishOptionGesture() {
+        let wasExpanded = model.state == .expanded
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog(
+                "[CodexIsland][OptionToggle] state=%@",
+                String(describing: model.state)
+            )
+            NSLog(
+                "[CodexIsland][OptionToggle][StateDiag] before=%@ next=%@",
+                String(describing: model.state),
+                String(describing: wasExpanded ? IslandModel.State.compact : IslandModel.State.expanded)
+            )
+            debugWindowState("[CodexIsland][OptionToggle]")
+        }
+
+        if wasExpanded {
+            restoreActiveApplicationIfNeeded()
+            toggleExpansionWithCommand()
+        } else {
+            rememberActiveApplicationIfNeeded()
+            toggleExpansionWithCommand()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+                guard let self else { return }
+                self.retryFocusIslandWindowForInput(remainingAttempts: 5)
+            }
+        }
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog(
+                "[CodexIsland][OptionToggle][StateDiag] after=%@",
+                String(describing: model.state)
+            )
+            debugWindowState("[CodexIsland][OptionToggle]")
+        }
+    }
+
+    @MainActor
+    private func focusIslandWindowForInput() {
+        window.setIsVisible(true)
+        window.alphaValue = 1
+        // Ensure the host app is frontmost before making CodexIsland key. In
+        // background states, AppKit can ignore focus transfers unless the app
+        // is explicitly activated, which leads to missing overlay key capture.
+        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        window.makeKey()
+        if let responder = window.contentView {
+            let succeeded = window.makeFirstResponder(responder)
+            if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+                NSLog("[CodexIsland][Focus] makeFirstResponder=%d", succeeded ? 1 : 0)
+            }
+        }
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            debugWindowState("[CodexIsland][Focus]")
+        }
+    }
+
+    @MainActor
+    private func retryFocusIslandWindowForInput(remainingAttempts: Int) {
+        guard remainingAttempts > 0, model.state == .expanded else { return }
+        focusIslandWindowForInput()
+        guard !window.isKeyWindow else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self else { return }
+            self.retryFocusIslandWindowForInput(remainingAttempts: remainingAttempts - 1)
+        }
+    }
+
+    private func rememberActiveApplicationIfNeeded() {
+        guard model.state != .expanded else { return }
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return }
+        if frontApp.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return
+        }
+        lastActiveApp = frontApp
+    }
+
+    private func restoreActiveApplicationIfNeeded() {
+        guard let app = lastActiveApp else { return }
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            debugWindowState("[CodexIsland][Restore]")
+        }
+        app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        lastActiveApp = nil
+    }
+
+    private func debugWindowState(_ tag: String) {
+        NSLog(
+            "%@ state=%@ visible=%d key=%d main=%d frontmost=%d alpha=%.2f frame=%@",
+            tag,
+            String(describing: model.state),
+            window.isVisible ? 1 : 0,
+            window.isKeyWindow ? 1 : 0,
+            window.isMainWindow ? 1 : 0,
+            window.alphaValue,
+            NSStringFromRect(window.frame)
+        )
+    }
+
+    @MainActor
+    private func handleOverlayKeyDown(keyCode: UInt16) {
+        guard self.model.state == .expanded else { return }
+
+        if ProcessInfo.processInfo.environment["CODEX_ISLAND_INPUT_DEBUG"] == "1" {
+            NSLog("[CodexIsland][OverlayAction] key=%d state=%@", Int(keyCode), String(describing: self.model.state))
+        }
+
+        switch keyCode {
+        case 123:
+            self.model.rewindScreen()
+        case 124:
+            self.model.advanceScreen()
+        case 49:
+            switch ScreenPref.shared.screen {
+            case .usage:
+                UsageStore.shared.refresh()
+            case .cost, .overview:
+                CostStore.shared.refresh()
+            }
+        default:
+            break
+        }
+    }
+
+    private func isOverlayActionKey(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 49, 123, 124:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    private func toggleExpansionWithCommand() {
+        withAnimation(model.state == .expanded ? .closeMorph : .openMorph) {
+            model.setState(model.state == .expanded ? .compact : .expanded)
         }
     }
 

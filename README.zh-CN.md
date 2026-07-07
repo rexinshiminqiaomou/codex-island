@@ -74,6 +74,7 @@ Claude：
 
 - 悬停刘海，预览当前 5 小时用量。
 - 点击岛，展开完整面板。
+- 本地修改版支持单按 `Option` 呼出 / 收回；展开时可用 `Left` / `Right` 切页，用 `Space` 刷新当前页面。
 - 在面板上横向滑动，或点击底部圆点，在 **Usage**、**Cost** 和 **Overview** 之间切换。
 - 移开鼠标，面板会收起。
 - 在展开面板里 Cmd 点击，可切换当前页面的可视化样式。
@@ -82,6 +83,8 @@ Claude：
 - 在设置里可以开启登录启动、选择刷新间隔、切换低功耗模式、隐藏或显示 Claude / Codex、选择默认图表和成本视图、切换 token 统计口径、打开 GitHub / License，或退出应用。
 
 服务可见性只影响显示。隐藏某个服务会移除它的 logo 和列，但应用仍会把最新用量保存在内存里，重新显示时不需要重置。
+
+本地构建、调试运行和推送到自己 GitHub 仓库的命令见：[本地修改版构建与运行](docs/LOCAL_BUILD_AND_RUN.zh-CN.md)。
 
 ## 设置
 
@@ -114,6 +117,12 @@ open build/CodexIsland.app
 ```
 
 这个项目没有 Xcode project，也没有 SwiftPM package。`build.sh` 会直接用 `swiftc` 编译 `Sources/**/*.swift`，分别构建 arm64 和 x86_64，再合并为通用二进制，复制资源并写入 `Info.plist`。
+
+如果遇到模块缓存权限问题，可以把缓存放到仓库目录：
+
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache" ./build.sh
+```
 
 原生 app 冒烟测试：
 

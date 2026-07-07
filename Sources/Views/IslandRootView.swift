@@ -120,11 +120,10 @@ struct IslandRootView: View {
                 }
                 .contentShape(IslandShape())
                 .onTapGesture {
-                    // Cmd-click cycles the visualization style of whichever
-                    // page is active. Usage rotates Ring/Bar/Stepped/Numeric/
-                    // Spark; cost rotates USD/VALUE/TOKENS/TREND. Overview
-                    // is fixed to year-to-date.
+                    // Cmd-click in expanded state keeps the chart-style shortcut.
+                    // In compact/peek state, do nothing; plain click expands.
                     if NSEvent.modifierFlags.contains(.command) {
+                        guard model.state == .expanded else { return }
                         switch ScreenPref.shared.screen {
                         case .usage: StylePref.shared.cycle()
                         case .cost:  CostStylePref.shared.cycle()
@@ -140,17 +139,6 @@ struct IslandRootView: View {
                     guard model.state == .peek || model.state == .compact else { return }
                     withAnimation(.openMorph) {
                         model.setState(.expanded)
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        guard model.state == .expanded else { return }
-                        withAnimation(.strongEaseOut) {
-                            contentVisible = true
-                        }
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        withAnimation(.easeIn(duration: 0.18)) {
-                            pillsVisible = false
-                        }
                     }
                 }
                 .onHover { h in
@@ -234,6 +222,19 @@ struct IslandRootView: View {
             if alwaysShow.enabled && model.state == .compact {
                 model.setState(.peek)
                 pillsVisible = true
+            }
+
+            if model.state == .expanded {
+                contentVisible = true
+            }
+        }
+        .onChange(of: model.state) { state in
+            if state == .expanded {
+                revealExpandedContent()
+            } else {
+                withAnimation(.easeOut(duration: 0.10)) {
+                    contentVisible = false
+                }
             }
         }
         .onChange(of: alwaysShow.enabled) { enabled in
@@ -319,6 +320,24 @@ struct IslandRootView: View {
                 withAnimation(.closeMorph) {
                     model.setState(.compact)
                 }
+            }
+        }
+    }
+
+    private func revealExpandedContent() {
+        concealExpandedPills()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            guard model.state == .expanded else { return }
+            withAnimation(.strongEaseOut) {
+                contentVisible = true
+            }
+        }
+    }
+
+    private func concealExpandedPills() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            withAnimation(.easeIn(duration: 0.18)) {
+                pillsVisible = false
             }
         }
     }
