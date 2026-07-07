@@ -70,32 +70,38 @@ struct IslandRootView: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .topLeading) {
-                    LogoOverlay(
-                        image: claudeLogo,
-                        color: IslandColor.claude,
-                        provider: .claude,
-                        edgePadding: logoEdgePadding(for: .claude),
-                        topPadding: max(0, (model.notch.height - 20) / 2)
-                    )
+                    if model.state != .peek {
+                        LogoOverlay(
+                            image: claudeLogo,
+                            color: IslandColor.claude,
+                            provider: .claude,
+                            edgePadding: 9,
+                            topPadding: max(0, (model.notch.height - 20) / 2)
+                        )
+                    }
                 }
                 .overlay(alignment: .topTrailing) {
-                    LogoOverlay(
-                        image: openaiLogo,
-                        color: IslandColor.codex,
-                        provider: .codex,
-                        edgePadding: logoEdgePadding(for: .codex),
-                        topPadding: max(0, (model.notch.height - 20) / 2)
-                    )
+                    if model.state != .peek {
+                        LogoOverlay(
+                            image: openaiLogo,
+                            color: IslandColor.codex,
+                            provider: .codex,
+                            edgePadding: 9,
+                            topPadding: max(0, (model.notch.height - 20) / 2)
+                        )
+                    }
                 }
                 .overlay(alignment: .topLeading) {
                     // Pill lives in the new outboard slot added when the
                     // silhouette enters peek. 14pt inset from the
                     // silhouette's leading/trailing edge keeps it visually
                     // breathing inside the rounded corner.
-                    if model.state != .compact {
+                    if model.state == .peek {
                         PeekPillOverlay(
+                            image: claudeLogo,
+                            color: IslandColor.claude,
                             provider: .claude,
-                            topPadding: max(0, (model.notch.height - 14) / 2),
+                            topPadding: max(0, (model.notch.height - 20) / 2),
                             pillsVisible: pillsVisible,
                             onMeasuredWidth: { width in
                                 updateMeasuredPillWidth(for: .claude, width: width)
@@ -104,10 +110,12 @@ struct IslandRootView: View {
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if model.state != .compact {
+                    if model.state == .peek {
                         PeekPillOverlay(
+                            image: openaiLogo,
+                            color: IslandColor.codex,
                             provider: .codex,
-                            topPadding: max(0, (model.notch.height - 14) / 2),
+                            topPadding: max(0, (model.notch.height - 20) / 2),
                             pillsVisible: pillsVisible,
                             onMeasuredWidth: { width in
                                 updateMeasuredPillWidth(for: .codex, width: width)
@@ -377,18 +385,6 @@ struct IslandRootView: View {
         }
     }
 
-    /// Logo's distance from the silhouette's leading/trailing edge. In
-    /// `.peek` we offset the logo inward by `pillSlotWidth` so it stays
-    /// physically pinned to its compact position while the silhouette grows
-    /// outward — leaving the new outboard space for the percentage pill.
-    /// Compact and expanded keep the logo at the silhouette edge (existing
-    /// behavior; expanded panel layout depends on it).
-    private func logoEdgePadding(for provider: AlertEngine.Provider) -> CGFloat {
-        switch model.state {
-        case .compact, .expanded: return 9
-        case .peek:               return model.pillSlotWidth(for: provider) + 9
-        }
-    }
 }
 
 /// Silhouette + halo + animated sweep. Bundles every layer whose
@@ -521,6 +517,8 @@ private struct LogoOverlay: View {
 /// scan completing doesn't re-render the pill that has no cost data
 /// in it.
 private struct PeekPillOverlay: View {
+    let image: NSImage?
+    let color: Color
     let provider: AlertEngine.Provider
     let topPadding: CGFloat
     let pillsVisible: Bool
@@ -532,23 +530,14 @@ private struct PeekPillOverlay: View {
 
     var body: some View {
         let window = currentWindow
-        NotchPeekPill(
-            usage: window,
-            loading: usageStore.loading,
-            tint: tint,
-            alignment: provider == .claude ? .leading : .trailing,
-            severity: severity
-        )
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: PeekPillWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
+        HStack(spacing: 8) {
+            if provider == .claude {
+                measuredPill
+                logo
+            } else {
+                logo
+                measuredPill
             }
-        }
-        .onPreferenceChange(PeekPillWidthPreferenceKey.self) { width in
-            onMeasuredWidth(width)
         }
         .padding(provider == .claude ? .leading : .trailing, 14)
         .padding(.top, topPadding)
@@ -568,6 +557,40 @@ private struct PeekPillOverlay: View {
         // accessibility hide on only `isVisible` lets VoiceOver reach a
         // pill that is visually invisible during the peek-out lifecycle.
         .accessibilityHidden(!(pillsVisible && isVisible))
+    }
+
+    private var measuredPill: some View {
+        let window = currentWindow
+        return NotchPeekPill(
+            usage: window,
+            loading: usageStore.loading,
+            tint: tint,
+            alignment: provider == .claude ? .leading : .trailing,
+            severity: severity
+        )
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: PeekPillWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        }
+        .onPreferenceChange(PeekPillWidthPreferenceKey.self) { width in
+            onMeasuredWidth(width)
+        }
+    }
+
+    @ViewBuilder
+    private var logo: some View {
+        if let image {
+            Image(nsImage: image)
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(color)
+                .frame(width: 20, height: 20)
+        }
     }
 
     private var isVisible: Bool {
