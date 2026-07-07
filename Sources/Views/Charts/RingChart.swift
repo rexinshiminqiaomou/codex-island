@@ -25,8 +25,8 @@ struct RingChart: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(label)
-                        .font(Typography.label)
-                        .foregroundStyle(.white.opacity(0.55))
+                        .font(Typography.windowLabel)
+                        .foregroundStyle(.white.opacity(0.78))
                         .textCase(.lowercase)
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
                         Text("\(Int(value))")
@@ -36,14 +36,14 @@ struct RingChart: View {
                             .animation(.strongEaseOut, value: value)
                         Text("%")
                             .font(Typography.label)
-                            .foregroundStyle(.white.opacity(0.5))
+                            .foregroundStyle(.white.opacity(0.72))
                     }
                 }
                 Spacer()
             }
             Text(sub)
-                .font(Typography.caption)
-                .foregroundStyle(.white.opacity(0.4))
+                .font(Typography.resetCaption)
+                .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }

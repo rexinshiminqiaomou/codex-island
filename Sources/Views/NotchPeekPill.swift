@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// Renders one of three states:
 ///   • value:    "32% · 2h"  (active countdown) or "0% · 5h" (window-length
-///               fallback at lower opacity when no active resetAt is known)
+///               fallback when no active resetAt is known)
 ///   • loading:  small pulsing dot (only when `loading && usedPercent == 0`)
 ///   • errored:  "—%"         (when error is set and we have no value)
 ///
@@ -25,8 +25,8 @@ struct NotchPeekPill: View {
                 LoadingDot()
             } else if showDash {
                 Text("—%")
-                    .font(Typography.bodyNumber)
-                    .foregroundStyle(.white.opacity(0.40))
+                    .font(Typography.peekReset)
+                    .foregroundStyle(.white.opacity(0.66))
             } else {
                 HStack(spacing: 4) {
                     if alignment == .leading {
@@ -54,29 +54,28 @@ struct NotchPeekPill: View {
 
     private var warningGlyph: some View {
         Text("⚠")
-            .font(Typography.bodyNumber)
+            .font(Typography.peekReset)
             .foregroundStyle(effectiveTint)
     }
 
     private var percentLabel: some View {
         Text(percentText)
-            .font(Typography.bodyNumber)
+            .font(Typography.peekReset)
             .foregroundStyle(effectiveTint)
     }
 
     private var separator: some View {
         Text("·")
-            .font(Typography.bodyNumber)
-            .foregroundStyle(.white.opacity(0.40))
+            .font(Typography.peekReset)
+            .foregroundStyle(.white.opacity(0.72))
     }
 
-    /// Lower opacity on the fallback differentiates a passive "5-hour
-    /// window" label from an active "5h until reset" countdown — same
-    /// glyph shape, weaker visual presence.
+    /// Keep fallback and active reset text visually identical in peek state;
+    /// dimming the fallback made the two sides read as different type sizes.
     private var resetLabel: some View {
         Text(resetText ?? "5h")
-            .font(Typography.bodyNumber)
-            .foregroundStyle(.white.opacity(resetText == nil ? 0.45 : 0.70))
+            .font(Typography.peekReset)
+            .foregroundStyle(.white.opacity(0.92))
     }
 
     /// Brand tint by default; alert color when above threshold so the
@@ -87,10 +86,6 @@ struct NotchPeekPill: View {
         case .warning:  return IslandColor.alertAmber
         case .critical: return IslandColor.alertRed
         }
-    }
-
-    private var hasValue: Bool {
-        usage.usedPercent > 0 || usage.error == nil
     }
 
     /// Spinner only fires for the cold-start case (loading AND we have nothing

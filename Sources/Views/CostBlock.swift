@@ -59,11 +59,11 @@ struct CostTile: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(L10n.tr(window.label))
                     .font(Typography.label)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(0.78))
                 Spacer()
                 Text(resetGlyph)
-                    .font(Typography.caption)
-                    .foregroundStyle(.white.opacity(window.unknownModels.isEmpty ? 0.4 : 0.5))
+                    .font(Typography.resetCaption)
+                    .foregroundStyle(.white.opacity(window.unknownModels.isEmpty ? 0.72 : 0.80))
                     .help(resetGlyphSpoken)
                     .accessibilityLabel(resetGlyphSpoken)
             }
@@ -121,7 +121,7 @@ struct CostTile: View {
         HStack(alignment: .firstTextBaseline, spacing: 1) {
             Text("$")
                 .font(Typography.unit)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(.white.opacity(0.70))
             CountUpDollar(target: window.dollars, color: color, glowOpacity: glowOpacity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -214,7 +214,7 @@ struct CostTile: View {
                 .shadow(color: color.opacity(glowOpacity * 0.5), radius: 14)
             Text(tokensUnit)
                 .font(Typography.unit)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(.white.opacity(0.70))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

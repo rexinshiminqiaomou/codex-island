@@ -74,7 +74,7 @@ struct IslandRootView: View {
                         image: claudeLogo,
                         color: IslandColor.claude,
                         provider: .claude,
-                        edgePadding: logoEdgePadding,
+                        edgePadding: logoEdgePadding(for: .claude),
                         topPadding: max(0, (model.notch.height - 20) / 2)
                     )
                 }
@@ -83,20 +83,23 @@ struct IslandRootView: View {
                         image: openaiLogo,
                         color: IslandColor.codex,
                         provider: .codex,
-                        edgePadding: logoEdgePadding,
+                        edgePadding: logoEdgePadding(for: .codex),
                         topPadding: max(0, (model.notch.height - 20) / 2)
                     )
                 }
                 .overlay(alignment: .topLeading) {
-                    // Pill lives in the new outboard slot (the 78pt the
-                    // silhouette grew on entering peek). 14pt inset from the
-                    // silhouette's new leading edge keeps it visually
+                    // Pill lives in the new outboard slot added when the
+                    // silhouette enters peek. 14pt inset from the
+                    // silhouette's leading/trailing edge keeps it visually
                     // breathing inside the rounded corner.
                     if model.state != .compact {
                         PeekPillOverlay(
                             provider: .claude,
                             topPadding: max(0, (model.notch.height - 14) / 2),
-                            pillsVisible: pillsVisible
+                            pillsVisible: pillsVisible,
+                            onMeasuredWidth: { width in
+                                updateMeasuredPillWidth(for: .claude, width: width)
+                            }
                         )
                     }
                 }
@@ -105,7 +108,10 @@ struct IslandRootView: View {
                         PeekPillOverlay(
                             provider: .codex,
                             topPadding: max(0, (model.notch.height - 14) / 2),
-                            pillsVisible: pillsVisible
+                            pillsVisible: pillsVisible,
+                            onMeasuredWidth: { width in
+                                updateMeasuredPillWidth(for: .codex, width: width)
+                            }
                         )
                     }
                 }
@@ -200,6 +206,7 @@ struct IslandRootView: View {
                         }
                     }
                 }
+                .offset(x: model.centerOffsetX)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -342,6 +349,16 @@ struct IslandRootView: View {
         }
     }
 
+    private func updateMeasuredPillWidth(for provider: AlertEngine.Provider, width: CGFloat) {
+        if model.state == .peek {
+            withAnimation(.openMorph) {
+                model.updateMeasuredPillWidth(for: provider, contentWidth: width)
+            }
+        } else {
+            model.updateMeasuredPillWidth(for: provider, contentWidth: width)
+        }
+    }
+
     private var restState: IslandModel.State {
         alwaysShow.enabled ? .peek : .compact
     }
@@ -366,10 +383,10 @@ struct IslandRootView: View {
     /// outward — leaving the new outboard space for the percentage pill.
     /// Compact and expanded keep the logo at the silhouette edge (existing
     /// behavior; expanded panel layout depends on it).
-    private var logoEdgePadding: CGFloat {
+    private func logoEdgePadding(for provider: AlertEngine.Provider) -> CGFloat {
         switch model.state {
         case .compact, .expanded: return 9
-        case .peek:               return model.pillSlotWidth + 9
+        case .peek:               return model.pillSlotWidth(for: provider) + 9
         }
     }
 }
@@ -507,6 +524,7 @@ private struct PeekPillOverlay: View {
     let provider: AlertEngine.Provider
     let topPadding: CGFloat
     let pillsVisible: Bool
+    let onMeasuredWidth: (CGFloat) -> Void
 
     @ObservedObject private var visibility = ProviderVisibilityStore.shared
     @ObservedObject private var usageStore = UsageStore.shared
@@ -521,6 +539,17 @@ private struct PeekPillOverlay: View {
             alignment: provider == .claude ? .leading : .trailing,
             severity: severity
         )
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: PeekPillWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        }
+        .onPreferenceChange(PeekPillWidthPreferenceKey.self) { width in
+            onMeasuredWidth(width)
+        }
         .padding(provider == .claude ? .leading : .trailing, 14)
         .padding(.top, topPadding)
         // Two opacity bindings stack:
@@ -591,6 +620,14 @@ private struct PeekPillOverlay: View {
         return mode == .used
             ? L10n.tr("%@: %d percent of 5-hour window used, %@", provider, pct, resetPhrase)
             : L10n.tr("%@: %d percent of 5-hour window remaining, %@", provider, pct, resetPhrase)
+    }
+}
+
+private struct PeekPillWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

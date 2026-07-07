@@ -16,13 +16,20 @@ final class IslandModel: ObservableObject {
     /// Side extension that houses each brand logo in compact state.
     let tabWidth: CGFloat = 38
 
-    /// Per-side outboard slot that houses the peek-state percentage pill.
-    /// Sized for "100% · Nh" worst case at the chosen pill typography.
-    /// Fixed (not text-measured) so percentage updates don't jitter the
-    /// silhouette width during refresh. Grown symmetrically on both sides
-    /// regardless of which provider is visible — keeps the silhouette
-    /// balanced over the physical notch.
-    let pillSlotWidth: CGFloat = 78
+    /// Per-side baseline spacing used by normal peek pills.
+    let basePillSlotWidth: CGFloat = 78
+
+    /// Desired visual gap between the measured peek pill text and the logo.
+    private let peekPillTextGap: CGFloat = 13
+
+    private(set) var claudePillSlotWidth: CGFloat = 78
+    private(set) var codexPillSlotWidth: CGFloat = 78
+
+    /// Offsets the asymmetric visual island so the compact center remains
+    /// pinned when only one side needs alert-width text.
+    var centerOffsetX: CGFloat {
+        (codexPillSlotWidth - claudePillSlotWidth) / 2
+    }
 
     /// Visible expanded panel width.
     private let expandedWidth: CGFloat = 800
@@ -56,6 +63,27 @@ final class IslandModel: ObservableObject {
         recomputeSize()
         subscribeToSpacingStore()
         subscribeToScreenPref()
+    }
+
+    func pillSlotWidth(for provider: AlertEngine.Provider) -> CGFloat {
+        switch provider {
+        case .claude: return claudePillSlotWidth
+        case .codex:  return codexPillSlotWidth
+        }
+    }
+
+    func updateMeasuredPillWidth(for provider: AlertEngine.Provider, contentWidth: CGFloat) {
+        guard contentWidth > 0 else { return }
+        let slot = max(basePillSlotWidth, ceil(contentWidth + peekPillTextGap))
+        switch provider {
+        case .claude:
+            guard abs(slot - claudePillSlotWidth) > 0.5 else { return }
+            claudePillSlotWidth = slot
+        case .codex:
+            guard abs(slot - codexPillSlotWidth) > 0.5 else { return }
+            codexPillSlotWidth = slot
+        }
+        recomputeSize()
     }
 
     func setState(_ new: State) {
@@ -171,7 +199,7 @@ final class IslandModel: ObservableObject {
             )
         case .peek:
             size = CGSize(
-                width: notch.width + tabWidth * 2 + pillSlotWidth * 2,
+                width: notch.width + tabWidth * 2 + claudePillSlotWidth + codexPillSlotWidth,
                 height: notch.height
             )
         case .expanded:

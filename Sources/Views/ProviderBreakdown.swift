@@ -194,7 +194,7 @@ struct PerModelBreakdown: View {
                 Spacer(minLength: 0)
                 Text(L10n.tr("no %@ activity in last 5h or this week", providerLowerLabel(provider)))
                     .font(Typography.caption)
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(.white.opacity(0.72))
                 Spacer(minLength: 0)
             } else {
                 VStack(spacing: 5) {
@@ -226,22 +226,22 @@ struct PerModelBreakdown: View {
             Text(L10n.tr("BY MODEL"))
                 .font(Typography.sectionLabel)
                 .tracking(0.6)
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(.white.opacity(0.78))
             Spacer(minLength: 0)
             HStack(spacing: 4) {
                 Capsule()
                     .fill(color.opacity(topWeight))
                     .frame(width: 8, height: 4)
                 Text(L10n.tr("5h"))
-                    .font(Typography.caption)
-                    .foregroundStyle(.white.opacity(0.50))
+                    .font(Typography.windowLabel)
+                    .foregroundStyle(.white.opacity(0.72))
                     .padding(.trailing, 4)
                 Capsule()
                     .fill(color.opacity(topWeight * dimFillMultiplier))
                     .frame(width: 8, height: 4)
                 Text(L10n.tr("week"))
-                    .font(Typography.caption)
-                    .foregroundStyle(.white.opacity(0.50))
+                    .font(Typography.windowLabel)
+                    .foregroundStyle(.white.opacity(0.72))
             }
         }
     }
