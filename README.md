@@ -1,5 +1,15 @@
 # CodexIsland
 
+> Fork notice: this repository is a personal fork of
+> [ericjypark/codex-island](https://github.com/ericjypark/codex-island).
+> The original project remains licensed under the MIT License by its original
+> authors and contributors; this fork preserves the upstream license,
+> copyright notice, and attribution. This is not an official upstream release.
+>
+> Changes in this fork: single-press `Option` toggles the island open/closed;
+> while expanded, `Left` / `Right` switch pages and `Space` refreshes the
+> current page. See [local build notes](docs/LOCAL_BUILD_AND_RUN.zh-CN.md).
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 <p align="center">

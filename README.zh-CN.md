@@ -1,5 +1,14 @@
 # CodexIsland
 
+> Fork 说明：本仓库是
+> [ericjypark/codex-island](https://github.com/ericjypark/codex-island)
+> 的个人 fork。原项目仍由原作者和贡献者按 MIT License 授权；本 fork 保留
+> upstream 的 license、版权声明和归属信息。这不是 upstream 官方发布版本。
+>
+> 本 fork 的主要修改：单按 `Option` 可呼出 / 收回岛；展开状态下可用
+> `Left` / `Right` 切页，用 `Space` 刷新当前页面。构建、调试和本地运行命令见：
+> [本地修改版构建与运行](docs/LOCAL_BUILD_AND_RUN.zh-CN.md)。
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 <p align="center">
