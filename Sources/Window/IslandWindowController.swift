@@ -11,6 +11,8 @@ final class IslandWindowController {
     private var globalMouseMonitor: Any?
     private var trackingTimer: Timer?
     private var screenChangeObserver: NSObjectProtocol?
+    private var windowMoveObserver: NSObjectProtocol?
+    private var windowResizeObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
     private var sessionResignObserver: NSObjectProtocol?
     private var sessionActiveObserver: NSObjectProtocol?
@@ -66,6 +68,7 @@ final class IslandWindowController {
         installMouseTracking()
         installInputHooks()
         observeScreenChanges()
+        observeWindowFrameChanges()
         observeTargetChoice()
         observeOcclusion()
         observeSessionState()
@@ -73,6 +76,12 @@ final class IslandWindowController {
 
     deinit {
         if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = windowMoveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = windowResizeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = occlusionObserver {
@@ -478,6 +487,29 @@ final class IslandWindowController {
         }
     }
 
+    private func observeWindowFrameChanges() {
+        guard windowMoveObserver == nil, windowResizeObserver == nil else { return }
+
+        let handler: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor in
+                self?.lockWindowToTargetFrameIfNeeded()
+            }
+        }
+
+        windowMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main,
+            using: handler
+        )
+        windowResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main,
+            using: handler
+        )
+    }
+
     /// Pauses the LoadingSweep when the user can't see the island —
     /// fullscreen apps on a separate Space, the screen going to sleep,
     /// or anything else macOS reports as making the window invisible.
@@ -549,10 +581,31 @@ final class IslandWindowController {
     private func repositionForCurrentScreen() {
         guard let screen = Self.targetScreen() else { return }
         model.updateNotch(NotchInfo.detect(from: screen))
+        window.setFrame(targetWindowFrame(on: screen), display: true)
+    }
+
+    private func lockWindowToTargetFrameIfNeeded() {
+        guard let screen = Self.targetScreen() else { return }
+
+        let targetFrame = targetWindowFrame(on: screen)
+        guard !framesMatch(window.frame, targetFrame) else { return }
+
+        window.setFrame(targetFrame, display: true)
+    }
+
+    private func targetWindowFrame(on screen: NSScreen) -> NSRect {
         let size = Self.windowSize
         let frame = screen.frame
         let x = frame.midX - size.width / 2
         let y = frame.maxY - size.height
-        window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private func framesMatch(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+        let tolerance: CGFloat = 0.5
+        return abs(lhs.origin.x - rhs.origin.x) < tolerance
+            && abs(lhs.origin.y - rhs.origin.y) < tolerance
+            && abs(lhs.size.width - rhs.size.width) < tolerance
+            && abs(lhs.size.height - rhs.size.height) < tolerance
     }
 }
